@@ -83,7 +83,7 @@ python -c "from chromadb import Client; print('✓ ChromaDB available')"
 
 **Cause**: Package not installed in the Python environment you're using.
 
-**Solution**: 
+**Solution**:
 1. Make sure you've activated the venv: `source venv/bin/activate`
 2. Install the package: `pip install -e .`
 3. Verify: `python -c "import cognitive_hydraulics"`

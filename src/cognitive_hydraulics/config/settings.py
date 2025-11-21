@@ -23,6 +23,9 @@ class Config(BaseModel):
     llm_max_retries: int = Field(
         default=2, ge=0, description="Maximum retry attempts for LLM queries"
     )
+    llm_timeout: float = Field(
+        default=5.0, ge=0.1, le=300.0, description="Timeout for LLM HTTP requests (seconds)"
+    )
 
     # ACT-R settings
     actr_goal_value: float = Field(

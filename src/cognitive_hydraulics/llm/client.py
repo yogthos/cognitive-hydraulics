@@ -25,6 +25,7 @@ class LLMClient:
         self,
         model: Optional[str] = None,
         host: Optional[str] = None,
+        timeout: Optional[float] = None,
         config: Optional["Config"] = None,
     ):
         """
@@ -33,16 +34,19 @@ class LLMClient:
         Args:
             model: Ollama model name (overrides config if provided)
             host: Ollama server URL (overrides config if provided)
+            timeout: HTTP timeout in seconds (overrides config if provided)
             config: Configuration object (if None, uses defaults)
         """
         if config:
             self.model = model if model is not None else config.llm_model
             self.host = host if host is not None else config.llm_host
+            self.timeout = timeout if timeout is not None else config.llm_timeout
             self._config = config
         else:
             # Backward compatibility: use defaults if no config
             self.model = model if model is not None else "qwen3:8b"
             self.host = host if host is not None else "http://localhost:11434"
+            self.timeout = timeout if timeout is not None else 5.0
             self._config = None
         self._client = None
 
@@ -54,8 +58,8 @@ class LLMClient:
                 # Note: Client initialization doesn't actually connect,
                 # connection happens on first API call
                 # Set timeout (httpx.Timeout) to prevent hanging
-                # timeout=5.0 means 5 seconds for all operations
-                self._client = ollama.Client(host=self.host, timeout=5.0)
+                # Timeout is configurable via config.llm_timeout
+                self._client = ollama.Client(host=self.host, timeout=self.timeout)
             except ImportError:
                 raise ImportError(
                     "ollama package required. Install with: pip install ollama"
