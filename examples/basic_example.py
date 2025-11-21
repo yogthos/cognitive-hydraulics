@@ -23,10 +23,10 @@ async def main():
     # 1. Create agent with dry-run mode (no actual file operations)
     print("\n📦 Creating cognitive agent...")
     from cognitive_hydraulics.config import load_config
-    
+
     # Optionally load config (will create default if doesn't exist)
     app_config = load_config()
-    
+
     safety_config = SafetyConfig(
         dry_run=True,  # Simulate without executing
         require_approval_for_destructive=False,  # Auto-approve for demo

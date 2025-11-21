@@ -253,7 +253,7 @@ class CognitiveAgent:
                         self._last_actr_utility = utility
                         self._last_actr_state = self.working_memory.current_state.model_copy(deep=True)
 
-                    await self._apply_operator(operator, utility, verbose)
+                    await self._apply_operator(operator, verbose)
 
                     # LEARNING: If operator succeeded, create chunk
                     if self.enable_learning and self.chunk_store:
@@ -303,7 +303,7 @@ class CognitiveAgent:
                             self._last_actr_utility = utility
                             self._last_actr_state = self.working_memory.current_state.model_copy(deep=True)
 
-                        await self._apply_operator(operator, utility, verbose)
+                        await self._apply_operator(operator, verbose)
 
                         # LEARNING: If operator succeeded, create chunk
                         if self.enable_learning and self.chunk_store:
@@ -358,7 +358,7 @@ class CognitiveAgent:
 
                     if result:
                         operator, utility = result
-                        await self._apply_operator(operator, utility, verbose)
+                        await self._apply_operator(operator, verbose)
                         return True
                     else:
                         if verbose:
