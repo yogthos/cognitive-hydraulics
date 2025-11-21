@@ -8,6 +8,7 @@ from typing import Optional
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
+from cognitive_hydraulics import __version__
 
 app = typer.Typer(
     name="cognitive-hydraulics",
@@ -20,8 +21,6 @@ console = Console()
 @app.command()
 def version():
     """Show version information."""
-    from cognitive_hydraulics import __version__
-
     console.print(Panel.fit(
         f"[bold cyan]Cognitive Hydraulics[/bold cyan]\n"
         f"Version: [yellow]{__version__}[/yellow]\n"
@@ -223,8 +222,23 @@ def example(
     console.print("[dim]This will run a full end-to-end scenario demonstrating the architecture[/dim]")
 
 
+def version_callback(value: bool) -> None:
+    """Callback for --version flag."""
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
 @app.callback()
-def callback():
+def callback(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        help="Show version and exit",
+        callback=version_callback,
+        is_eager=True,
+    ),
+):
     """
     🧠 Cognitive Hydraulics - Hybrid Reasoning Engine
 
