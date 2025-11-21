@@ -72,7 +72,7 @@ try:
     # Try to actually use it
     from cognitive_hydraulics.memory.chunk import Chunk
     from datetime import datetime
-    
+
     chunk = Chunk(
         id='test',
         state_signature={'goal': 'test'},
