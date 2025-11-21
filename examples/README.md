@@ -30,6 +30,20 @@ python examples/learning_example.py
 - Second encounter: Fast (memory retrieval)
 - 10x speedup from learning
 
+### Bug Fix Example
+Demonstrates finding and fixing bugs in code:
+
+```bash
+python examples/bug_fix_example.py
+```
+
+**What it shows:**
+- Reading and analyzing buggy code (`sort.py`)
+- AST parsing with Tree-sitter
+- Identifying the bug (IndexError in bubble sort)
+- Suggesting a fix using hybrid reasoning
+- The bug: `range(0, n - i)` should be `range(0, n - i - 1)` to avoid index out of bounds
+
 ## Example Structure
 
 Each example follows this pattern:
@@ -53,6 +67,12 @@ Each example follows this pattern:
 - ✅ Chunk creation
 - ✅ Memory retrieval
 - ✅ Learning from experience
+
+### Bug Fix Example
+- ✅ Code analysis with AST parsing
+- ✅ Bug detection and identification
+- ✅ Fix suggestion generation
+- ✅ Real-world debugging scenario
 
 ## Configuration Options
 

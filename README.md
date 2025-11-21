@@ -121,12 +121,32 @@ python -m cognitive_hydraulics info
 # Run an example
 python examples/basic_example.py
 
+# Find and fix a bug (example included)
+python examples/bug_fix_example.py
+
 # Solve a goal (dry-run mode)
-python -m cognitive_hydraulics solve "Fix the bug" --dry-run
+python -m cognitive_hydraulics solve "Fix the bug in sort.py" --dir ./examples --dry-run
 
 # Enable learning
 python -m cognitive_hydraulics solve "Debug function" --learning --chunks ./chunks
 ```
+
+### Example: Finding a Bug
+
+The project includes a buggy `sort.py` file and an example that demonstrates how Cognitive Hydraulics finds and fixes bugs:
+
+```bash
+# Run the bug-finding example
+python examples/bug_fix_example.py
+```
+
+This example:
+1. **Reads** the buggy `sort.py` file (contains an IndexError in bubble sort)
+2. **Analyzes** the code structure using Tree-sitter AST parsing
+3. **Identifies** the bug (loop goes out of bounds: `range(0, n - i)` should be `range(0, n - i - 1)`)
+4. **Suggests** a fix using the hybrid Soar+ACT-R reasoning
+
+The bug: The inner loop in `sort_numbers()` uses `range(0, n - i)` which causes `result[j + 1]` to go out of bounds. The fix is to change it to `range(0, n - i - 1)`.
 
 ### Python API
 
