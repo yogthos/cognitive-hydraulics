@@ -322,11 +322,14 @@ class CognitiveAgent:
                         return True
                     else:
                         if verbose:
-                            print(f"   ACT-R failed to evaluate generated operators")
+                            print(f"   ⚠️  ACT-R failed to evaluate generated operators")
+                            print(f"   ℹ️  LLM may be unavailable. Symbolic reasoning only mode.")
                         return False
                 else:
                     if verbose:
-                        print(f"   ACT-R failed to generate operators")
+                        print(f"   ⚠️  ACT-R failed to generate operators")
+                        print(f"   ℹ️  LLM unavailable. Cannot proceed without rules or LLM.")
+                        print(f"   💡 Tip: Start Ollama with 'ollama serve' for LLM support")
                     return False
             else:
                 # Other impasse types - no operators to rate
@@ -366,7 +369,9 @@ class CognitiveAgent:
                         return False
                 else:
                     if verbose:
-                        print(f"   ACT-R failed to generate operators - cannot proceed")
+                        print(f"   ⚠️  ACT-R failed to generate operators")
+                        print(f"   ℹ️  LLM unavailable. Cannot proceed without rules or LLM.")
+                        print(f"   💡 Tip: Start Ollama with 'ollama serve' for LLM support")
                     return False
 
             elif impasse.type == ImpasseType.TIE:

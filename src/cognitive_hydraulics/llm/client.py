@@ -111,7 +111,7 @@ class LLMClient:
             max_retries = self._config.llm_max_retries if self._config else 2
 
         client = self._get_client()
-        
+
         # Note: Connection check removed because it can hang even with timeout.
         # Instead, we rely on the timeout in the actual query below.
 
