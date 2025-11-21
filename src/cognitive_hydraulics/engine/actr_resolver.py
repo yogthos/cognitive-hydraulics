@@ -112,6 +112,7 @@ class ACTRResolver:
                 response_schema=UtilityEvaluation,
                 system_prompt=PromptTemplates.SYSTEM_PROMPT,
                 temperature=0.3,
+                verbose=verbose,
             )
 
             if not evaluation:
@@ -192,6 +193,7 @@ class ACTRResolver:
                 prompt=prompt,
                 response_schema=OperatorProposal,
                 system_prompt=PromptTemplates.SYSTEM_PROMPT,
+                verbose=verbose,
             )
 
             if not response:

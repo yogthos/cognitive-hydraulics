@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from typing import Type, TypeVar, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, ValidationError
@@ -50,12 +51,34 @@ class LLMClient:
         if self._client is None:
             try:
                 import ollama
+                # Note: Client initialization doesn't actually connect,
+                # connection happens on first API call
                 self._client = ollama.Client(host=self.host)
             except ImportError:
                 raise ImportError(
                     "ollama package required. Install with: pip install ollama"
                 )
         return self._client
+    
+    async def check_connection_async(self, timeout: float = 2.0) -> bool:
+        """
+        Asynchronously check if Ollama server is reachable with timeout.
+        
+        Args:
+            timeout: Timeout in seconds
+            
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            client = self._get_client()
+            await asyncio.wait_for(
+                asyncio.to_thread(client.list),
+                timeout=timeout
+            )
+            return True
+        except (asyncio.TimeoutError, Exception):
+            return False
 
     async def structured_query(
         self,
@@ -64,6 +87,7 @@ class LLMClient:
         system_prompt: str = "",
         temperature: Optional[float] = None,
         max_retries: Optional[int] = None,
+        verbose: bool = False,
     ) -> Optional[T]:
         """
         Query LLM with enforced JSON schema.
@@ -84,20 +108,52 @@ class LLMClient:
         if max_retries is None:
             max_retries = self._config.llm_max_retries if self._config else 2
 
+        # Quick connection check to avoid hanging
+        is_connected = await self.check_connection_async(timeout=2.0)
+        if not is_connected:
+            if verbose:
+                print(f"   ✗ Ollama server not reachable at {self.host}")
+                print(f"   💡 Start Ollama with: ollama serve")
+            return None
+        
         client = self._get_client()
 
         for attempt in range(max_retries + 1):
             try:
-                # Call Ollama
-                response = client.chat(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt},
-                    ],
-                    format="json",  # Request JSON format
-                    options={"temperature": temperature},
-                )
+                # Call Ollama (run in executor to avoid blocking, with timeout)
+                # Use asyncio.to_thread if available (Python 3.9+), otherwise run_in_executor
+                try:
+                    response = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            client.chat,
+                            model=self.model,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": prompt},
+                            ],
+                            format="json",  # Request JSON format
+                            options={"temperature": temperature},
+                        ),
+                        timeout=60.0,  # 60 second timeout for LLM response
+                    )
+                except AttributeError:
+                    # Fallback for Python < 3.9
+                    loop = asyncio.get_event_loop()
+                    response = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            None,
+                            lambda: client.chat(
+                                model=self.model,
+                                messages=[
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": prompt},
+                                ],
+                                format="json",
+                                options={"temperature": temperature},
+                            ),
+                        ),
+                        timeout=60.0,
+                    )
 
                 # Extract response text
                 response_text = response["message"]["content"]
@@ -127,11 +183,22 @@ class LLMClient:
                         f"LLM response failed validation after {max_retries} attempts: {e}"
                     )
 
+            except asyncio.TimeoutError:
+                if attempt < max_retries:
+                    if verbose:
+                        print(f"   ⚠️  Attempt {attempt + 1} timed out, retrying...")
+                    continue
+                if verbose:
+                    print(f"   ✗ LLM query timed out after {max_retries + 1} attempts")
+                return None
             except Exception as e:
                 if attempt < max_retries:
+                    if verbose:
+                        print(f"   ⚠️  Attempt {attempt + 1} failed: {e}, retrying...")
                     continue
                 # Return None on final failure rather than crashing
-                print(f"LLM query failed: {e}")
+                if verbose:
+                    print(f"   ✗ LLM query failed after {max_retries + 1} attempts: {e}")
                 return None
 
         return None
