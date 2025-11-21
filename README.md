@@ -53,7 +53,8 @@ Current AI agents get stuck in "loops of doom" because they use LLMs for *everyt
 
 ### Prerequisites
 
-- **Python 3.10+** (Python 3.14 recommended)
+- **Python 3.10-3.12** (Python 3.12 recommended for full functionality)
+  - ⚠️ **Note**: Python 3.14+ works but disables learning/chunking (see [PYTHON_3_14_COMPATIBILITY.md](PYTHON_3_14_COMPATIBILITY.md))
 - **Ollama** for local LLM
 
 ```bash
@@ -75,7 +76,17 @@ cd cognitive-hydraulics
 
 #### 2. Create and Activate Virtual Environment
 
-**On macOS/Linux:**
+**On macOS/Linux (using Python 3.12):**
+```bash
+# Use Python 3.12 for full functionality (including learning)
+python3.12 -m venv venv
+source venv/bin/activate
+
+# Verify Python version
+python --version  # Should show Python 3.12.x
+```
+
+**On macOS/Linux (using default Python):**
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -86,6 +97,8 @@ source venv/bin/activate
 python -m venv venv
 venv\Scripts\activate
 ```
+
+> **💡 Tip**: For full functionality including learning/chunking, use Python 3.12. See [SETUP_PYTHON_3_12.md](SETUP_PYTHON_3_12.md) for detailed setup instructions.
 
 #### 3. Install Dependencies
 
