@@ -9,6 +9,10 @@ from datetime import datetime
 from cognitive_hydraulics.core.operator import Operator, OperatorResult
 from cognitive_hydraulics.core.state import EditorState, Goal, FileContent
 
+# Rebuild models to resolve forward references
+EditorState.model_rebuild()
+OperatorResult.model_rebuild()
+
 
 class OpReadFile(Operator):
     """Read a file from the filesystem (safe, non-destructive)."""

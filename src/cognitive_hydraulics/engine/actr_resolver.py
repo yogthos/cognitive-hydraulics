@@ -8,9 +8,15 @@ from typing import List, Optional, Tuple
 from cognitive_hydraulics.core.state import EditorState, Goal
 from cognitive_hydraulics.core.operator import Operator
 from cognitive_hydraulics.llm.client import LLMClient
-from cognitive_hydraulics.llm.schemas import UtilityEvaluation, UtilityEstimate
+from cognitive_hydraulics.llm.schemas import (
+    UtilityEvaluation,
+    UtilityEstimate,
+    OperatorProposal,
+    OperatorSuggestion,
+)
 from cognitive_hydraulics.llm.prompts import PromptTemplates
 from cognitive_hydraulics.utils.context_manager import ContextWindowManager
+from cognitive_hydraulics.operators.file_ops import OpReadFile, OpListDirectory
 
 
 class ACTRResolver:
@@ -127,6 +133,94 @@ class ACTRResolver:
         except Exception as e:
             if verbose:
                 print(f"   ✗ Error during LLM query: {e}")
+            return None
+
+    async def generate_operators(
+        self,
+        state: EditorState,
+        goal: Goal,
+        verbose: bool = True,
+    ) -> Optional[List[Operator]]:
+        """
+        Generate operators from scratch when no rules match (NO_CHANGE impasse).
+
+        Uses LLM to suggest operators based on current state and goal.
+
+        Args:
+            state: Current state
+            goal: Current goal
+            verbose: Print reasoning
+
+        Returns:
+            List of suggested operators or None if LLM fails
+        """
+        try:
+            # Compress state for LLM
+            state_summary = self.context_manager.compress_state(state, goal)
+
+            # Get recent error if available
+            error = state.error_log[-1] if state.error_log else None
+
+            # Create prompt
+            prompt = PromptTemplates.generate_operators_prompt(
+                state_summary=state_summary,
+                goal=goal.description,
+                error=error,
+            )
+
+            if verbose:
+                print(f"   🤖 Querying LLM for operator suggestions...")
+
+            # Query LLM for operator suggestions
+            response = await self.llm.structured_query(
+                prompt=prompt,
+                response_schema=OperatorProposal,
+                system_prompt=PromptTemplates.SYSTEM_PROMPT,
+            )
+
+            if not response:
+                return None
+
+            # Convert suggestions to actual operators
+            operators = []
+            for suggestion in response.operators:
+                op = self._create_operator_from_suggestion(suggestion)
+                if op:
+                    operators.append(op)
+                    if verbose:
+                        print(f"   💡 Suggested: {op.name} - {suggestion.reasoning}")
+
+            return operators if operators else None
+
+        except Exception as e:
+            if verbose:
+                print(f"   ✗ Error generating operators: {e}")
+            return None
+
+    def _create_operator_from_suggestion(
+        self, suggestion: OperatorSuggestion
+    ) -> Optional[Operator]:
+        """
+        Convert an LLM operator suggestion into an actual Operator object.
+
+        Args:
+            suggestion: Operator suggestion from LLM
+
+        Returns:
+            Operator instance or None if suggestion is invalid
+        """
+        op_name = suggestion.name.lower()
+        params = suggestion.parameters
+
+        # Map LLM suggestions to actual operators
+        if op_name == "read_file" and "path" in params:
+            return OpReadFile(params["path"])
+        elif op_name == "list_dir":
+            path = params.get("path", ".")
+            return OpListDirectory(path)
+        # Add more operator types as needed
+        else:
+            # Unknown operator type - skip it
             return None
 
     def estimate_single_utility(

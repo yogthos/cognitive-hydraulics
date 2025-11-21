@@ -140,13 +140,14 @@ class RuleEngine:
             )
         )
 
-        # Rule 5: If goal mentions "read" or "check", prioritize reading
+        # Rule 5: If goal mentions "read", "check", "bug", or "fix", prioritize reading
         self.add_rule(
             Rule(
                 name="read_for_inspection",
                 description="Read files for inspection goals",
                 condition=lambda s, g: any(
-                    word in g.description.lower() for word in ["read", "check", "inspect", "look"]
+                    word in g.description.lower()
+                    for word in ["read", "check", "inspect", "look", "bug", "fix", "analyze"]
                 )
                 and self._file_mentioned_but_not_open(s, g),
                 operator_factory=lambda s, g: OpReadFile(

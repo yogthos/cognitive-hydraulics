@@ -247,19 +247,100 @@ class CognitiveAgent:
                     if verbose:
                         print(f"   ACT-R fallback failed - no LLM response")
                     return False
+            elif impasse.type == ImpasseType.NO_CHANGE:
+                # NO_CHANGE impasse - generate operators using LLM
+                if verbose:
+                    print(f"   🤖 Generating operators using ACT-R...")
+                
+                generated_ops = await self.actr_resolver.generate_operators(
+                    self.working_memory.current_state,
+                    self.current_goal,
+                    verbose=verbose,
+                )
+                
+                if generated_ops:
+                    # Evaluate the generated operators and pick the best
+                    result = await self.actr_resolver.resolve(
+                        generated_ops,
+                        self.working_memory.current_state,
+                        self.current_goal,
+                        verbose=verbose,
+                    )
+                    
+                    if result:
+                        operator, utility = result
+                        
+                        # Track for chunking
+                        if self.enable_learning:
+                            self._last_actr_operator = operator
+                            self._last_actr_utility = utility
+                            self._last_actr_state = self.working_memory.current_state.model_copy(deep=True)
+                        
+                        await self._apply_operator(operator, utility, verbose)
+                        
+                        # LEARNING: If operator succeeded, create chunk
+                        if self.enable_learning and self.chunk_store:
+                            last_transition = self.working_memory.history[-1] if self.working_memory.history else None
+                            if last_transition and last_transition.success:
+                                chunk = create_chunk_from_success(
+                                    state=self._last_actr_state,
+                                    operator=self._last_actr_operator,
+                                    goal=self.current_goal.description,
+                                    utility=self._last_actr_utility,
+                                )
+                                if verbose:
+                                    print(f"   💾 Learning: Created chunk {chunk.id[:8]}...")
+                                self.chunk_store.store_chunk(chunk)
+                        
+                        return True
+                    else:
+                        if verbose:
+                            print(f"   ACT-R failed to evaluate generated operators")
+                        return False
+                else:
+                    if verbose:
+                        print(f"   ACT-R failed to generate operators")
+                    return False
             else:
-                # NO_CHANGE impasse - no operators to rate
+                # Other impasse types - no operators to rate
                 if verbose:
                     print(f"   No operators to evaluate")
                 return False
 
         else:
-            # Pressure OK - try creating a sub-goal
+            # Pressure OK - but for NO_CHANGE, we still need ACT-R to generate operators
             if impasse.type == ImpasseType.NO_CHANGE:
-                # No operators - we're truly stuck without ACT-R
+                # No operators - use ACT-R to generate them
                 if verbose:
-                    print(f"   No operators available - cannot proceed")
-                return False
+                    print(f"   🤖 Generating operators using ACT-R (low pressure)...")
+                
+                generated_ops = await self.actr_resolver.generate_operators(
+                    self.working_memory.current_state,
+                    self.current_goal,
+                    verbose=verbose,
+                )
+                
+                if generated_ops:
+                    # Evaluate and pick the best
+                    result = await self.actr_resolver.resolve(
+                        generated_ops,
+                        self.working_memory.current_state,
+                        self.current_goal,
+                        verbose=verbose,
+                    )
+                    
+                    if result:
+                        operator, utility = result
+                        await self._apply_operator(operator, utility, verbose)
+                        return True
+                    else:
+                        if verbose:
+                            print(f"   ACT-R failed to evaluate generated operators")
+                        return False
+                else:
+                    if verbose:
+                        print(f"   ACT-R failed to generate operators - cannot proceed")
+                    return False
 
             elif impasse.type == ImpasseType.TIE:
                 # Multiple equal operators - for now, just pick first
