@@ -7,6 +7,7 @@ from typing import List, Optional, Tuple
 
 from cognitive_hydraulics.core.state import EditorState, Goal
 from cognitive_hydraulics.core.operator import Operator
+from cognitive_hydraulics.core.verbosity import should_print, normalize_verbose, format_thinking, VerbosityLevel
 from cognitive_hydraulics.llm.client import LLMClient
 from cognitive_hydraulics.llm.schemas import (
     UtilityEvaluation,

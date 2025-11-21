@@ -145,6 +145,25 @@ class TestMetaCognitiveMonitor:
 
         assert ambiguity == 0.0  # No ambiguity
 
+    def test_get_thinking_summary(self):
+        """Test get_thinking_summary method."""
+        monitor = MetaCognitiveMonitor(depth_threshold=3, time_threshold_ms=500.0)
+        metrics = CognitiveMetrics(
+            goal_depth=1,
+            time_in_state_ms=100.0,
+            impasse_count=0,
+            operator_ambiguity=0.3,
+        )
+
+        summary = monitor.get_thinking_summary(metrics)
+
+        assert "Depth:" in summary
+        assert "Time in state:" in summary
+        assert "Impasses:" in summary
+        assert "Ambiguity:" in summary
+        assert "Pressure:" in summary
+        assert "Decision:" in summary
+
     def test_calculate_operator_ambiguity_clear_winner(self):
         """Test ambiguity with clear winner."""
         monitor = MetaCognitiveMonitor()

@@ -417,6 +417,84 @@ class CognitiveAgent:
                     print(f"   No operators to evaluate")
                 return False
 
+        else:
+            # Pressure OK - but for NO_CHANGE, we still need ACT-R to generate operators
+            if impasse.type == ImpasseType.NO_CHANGE:
+                # No operators - use ACT-R to generate them
+                if should_print(verbose, VerbosityLevel.BASIC):
+                    print(f"   🤖 Generating operators using ACT-R (low pressure)...")
+
+                if should_print(verbose, VerbosityLevel.THINKING):
+                    thinking_lines = [
+                        f"Pressure is low (<0.7)",
+                        f"Using ACT-R to generate operators (no rules matched)",
+                        f"Reasoning: Need LLM to suggest operators when symbolic rules fail",
+                    ]
+                    print(format_thinking("Generating Operators with ACT-R", "\n".join(thinking_lines)))
+
+                generated_ops = await self.actr_resolver.generate_operators(
+                    self.working_memory.current_state,
+                    self.current_goal,
+                    verbose=verbose,
+                )
+
+                if generated_ops:
+                    # Evaluate and pick the best
+                    result = await self.actr_resolver.resolve(
+                        generated_ops,
+                        self.working_memory.current_state,
+                        self.current_goal,
+                        verbose=verbose,
+                    )
+
+                    if result:
+                        operator, utility = result
+                        await self._apply_operator(operator, verbose)
+                        return True
+                    else:
+                        if should_print(verbose, VerbosityLevel.BASIC):
+                            print(f"   ACT-R failed to evaluate generated operators")
+                        return False
+                else:
+                    if should_print(verbose, VerbosityLevel.BASIC):
+                        print(f"   ⚠️  ACT-R failed to generate operators")
+                        print(f"   ℹ️  LLM unavailable. Cannot proceed without rules or LLM.")
+                        print(f"   💡 Tip: Start Ollama with 'ollama serve' for LLM support")
+                    return False
+
+            elif impasse.type == ImpasseType.TIE:
+                # Multiple equal operators - for now, just pick first
+                # (In Phase 4, ACT-R will rate them)
+                if should_print(verbose, VerbosityLevel.BASIC):
+                    print(f"   Breaking tie by selecting first operator")
+                if should_print(verbose, VerbosityLevel.THINKING):
+                    thinking_lines = [
+                        f"Multiple operators with equal priority",
+                        f"Selecting first operator as tie-breaker",
+                    ]
+                    print(format_thinking("Resolving Tie", "\n".join(thinking_lines)))
+                operator, _ = impasse.operators[0]
+                await self._apply_operator(operator, verbose)
+                return True
+
+            else:
+                # Other impasse types - create sub-goal
+                if should_print(verbose, VerbosityLevel.BASIC):
+                    print(f"   Creating sub-goal to resolve impasse")
+                if should_print(verbose, VerbosityLevel.THINKING):
+                    thinking_lines = [
+                        f"Creating sub-goal to resolve {impasse.type.value} impasse",
+                        f"Reasoning: Pressure is low, can continue with symbolic reasoning",
+                    ]
+                    print(format_thinking("Creating Sub-Goal", "\n".join(thinking_lines)))
+                subgoal = Goal(
+                    description=f"Resolve {impasse.type.value} impasse",
+                    parent_goal=self.current_goal,
+                )
+                self._push_goal(subgoal)
+                if should_print(verbose, VerbosityLevel.BASIC):
+                    print(f"   ↳ New sub-goal: {subgoal.description}")
+                return True
 
     async def _apply_operator(self, operator: Operator, verbose: int = 2) -> None:
         """
