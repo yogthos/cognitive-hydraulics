@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Type, TypeVar, Optional
+from typing import Type, TypeVar, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, ValidationError
+
+if TYPE_CHECKING:
+    from cognitive_hydraulics.config.settings import Config
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -17,16 +20,29 @@ class LLMClient:
     This is a lightweight wrapper that enforces structured output.
     """
 
-    def __init__(self, model: str = "qwen3:8b", host: str = "http://localhost:11434"):
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        host: Optional[str] = None,
+        config: Optional["Config"] = None,
+    ):
         """
         Initialize LLM client.
 
         Args:
-            model: Ollama model name
-            host: Ollama server URL
+            model: Ollama model name (overrides config if provided)
+            host: Ollama server URL (overrides config if provided)
+            config: Configuration object (if None, uses defaults)
         """
-        self.model = model
-        self.host = host
+        if config:
+            self.model = model if model is not None else config.llm_model
+            self.host = host if host is not None else config.llm_host
+            self._config = config
+        else:
+            # Backward compatibility: use defaults if no config
+            self.model = model if model is not None else "qwen3:8b"
+            self.host = host if host is not None else "http://localhost:11434"
+            self._config = None
         self._client = None
 
     def _get_client(self):
@@ -46,8 +62,8 @@ class LLMClient:
         prompt: str,
         response_schema: Type[T],
         system_prompt: str = "",
-        temperature: float = 0.3,
-        max_retries: int = 2,
+        temperature: Optional[float] = None,
+        max_retries: Optional[int] = None,
     ) -> Optional[T]:
         """
         Query LLM with enforced JSON schema.
@@ -56,12 +72,18 @@ class LLMClient:
             prompt: User prompt
             response_schema: Pydantic model for response validation
             system_prompt: System prompt for context
-            temperature: Sampling temperature (0.0 = deterministic)
-            max_retries: Number of retry attempts if parsing fails
+            temperature: Sampling temperature (0.0 = deterministic). Uses config if None.
+            max_retries: Number of retry attempts if parsing fails. Uses config if None.
 
         Returns:
             Validated response or None if all retries failed
         """
+        # Use config values if not explicitly provided
+        if temperature is None:
+            temperature = self._config.llm_temperature if self._config else 0.3
+        if max_retries is None:
+            max_retries = self._config.llm_max_retries if self._config else 2
+
         client = self._get_client()
 
         for attempt in range(max_retries + 1):

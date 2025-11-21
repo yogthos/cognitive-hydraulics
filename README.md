@@ -112,6 +112,40 @@ python -m cognitive_hydraulics info
 
 > **💡 Note:** To deactivate the virtual environment later, simply run `deactivate`
 
+### Configuration
+
+Cognitive Hydraulics uses a configuration file to manage settings. On first run, a default config file is automatically created at `~/.cognitive-hydraulics/config.json`.
+
+**Default Configuration:**
+```json
+{
+  "llm_model": "qwen3:8b",
+  "llm_host": "http://localhost:11434",
+  "llm_temperature": 0.3,
+  "llm_max_retries": 2,
+  "actr_goal_value": 10.0,
+  "actr_noise_stddev": 0.5,
+  "cognitive_depth_threshold": 3,
+  "cognitive_time_threshold_ms": 500.0,
+  "cognitive_max_cycles": 100
+}
+```
+
+**Configuration Settings:**
+- `llm_model`: Ollama model name (default: `qwen3:8b`)
+- `llm_host`: Ollama server URL (default: `http://localhost:11434`)
+- `llm_temperature`: LLM sampling temperature 0.0-2.0 (default: `0.3`)
+- `llm_max_retries`: Maximum retry attempts for LLM queries (default: `2`)
+- `actr_goal_value`: Goal value G in utility equation (default: `10.0`)
+- `actr_noise_stddev`: Standard deviation for utility noise (default: `0.5`)
+- `cognitive_depth_threshold`: Max sub-goal depth before fallback (default: `3`)
+- `cognitive_time_threshold_ms`: Max time in state before fallback in ms (default: `500.0`)
+- `cognitive_max_cycles`: Maximum decision cycles (default: `100`)
+
+**CLI Override:** Command-line arguments override config values. For example, `--max-cycles 50` will override `cognitive_max_cycles` from the config file.
+
+**Custom Config Path:** Use `--config /path/to/config.json` to specify a custom configuration file.
+
 ### Basic Usage
 
 ```bash
@@ -599,7 +633,8 @@ solve OPTIONS:
   --dry-run                   Simulate without executing
   --learning / --no-learning  Enable/disable chunking (default: on)
   --chunks PATH               Persistent chunk storage path
-  --max-cycles N              Maximum decision cycles (default: 100)
+  --max-cycles N              Maximum decision cycles (overrides config)
+  --config PATH               Custom config file path (default: ~/.cognitive-hydraulics/config.json)
   --verbose, -v / --quiet, -q Control output verbosity
 ```
 

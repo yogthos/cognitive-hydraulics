@@ -1,47 +1,45 @@
-"""
-A simple sorting function with a bug.
+def merge(arr, l, m, r):
+    n1 = m - l + 1
+    n2 = r - m
 
-This function is supposed to sort a list of numbers in ascending order,
-but it has a subtle bug that causes incorrect sorting in some cases.
-"""
+    L = [0] * n1
+    R = [0] * n2
 
+    for i in range(n1):
+        L[i] = arr[l + i]
+    for j in range(n2):
+        R[j] = arr[m + 1 + j]
 
-def sort_numbers(numbers):
-    """
-    Sort a list of numbers in ascending order.
+    i = j = 0
+    k = l
 
-    Args:
-        numbers: List of numbers to sort
+    while i < n1 and j < n2:
+        if L[i] <= R[j]:
+            arr[k] = L[i]
+            i += 1
+        else:
+            arr[k] = R[j]
+            j += 1
+        k += 1
 
-    Returns:
-        Sorted list of numbers
-    """
-    if not numbers:
-        return []
+    while i < n1:
+        arr[k] = L[i]
+        i += 1
+        k += 1
+    while j < n2:
+        arr[k] = R[j]
+        j += 1
+        k += 1
 
-    # Create a copy to avoid modifying the original
-    result = numbers.copy()
+def mergeSort(arr, l, l):
+    if l < r:
+        m = l + (r - l) // 2
+        mergeSort(arr, l, m)
+        mergeSort(arr, m + 1, r)
+        merge(arr, l, m, r)
 
-    # Bubble sort implementation
-    n = len(result)
-    for i in range(n):
-        for j in range(0, n - i):
-            if result[j] > result[j + 1]:
-                # Swap elements
-                result[j], result[j + 1] = result[j + 1], result[j]
+arr = [12, 11, 13, 5, 6, 7]
+print("Given array is:", arr)
 
-    return result
-
-
-if __name__ == "__main__":
-    # Test cases
-    test1 = [3, 1, 4, 1, 5, 9, 2, 6]
-    print(f"Input: {test1}")
-    print(f"Output: {sort_numbers(test1)}")
-    print(f"Expected: {sorted(test1)}")
-
-    test2 = [5, 2, 8, 1, 9]
-    print(f"\nInput: {test2}")
-    print(f"Output: {sort_numbers(test2)}")
-    print(f"Expected: {sorted(test2)}")
-
+mergeSort(arr, 0, len(arr) - 1)
+print("Sorted array is:", arr)

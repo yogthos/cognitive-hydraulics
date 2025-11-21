@@ -79,11 +79,14 @@ def solve(
     chunk_store: Optional[Path] = typer.Option(
         None, "--chunks", help="Path for persistent chunk storage"
     ),
-    max_cycles: int = typer.Option(
-        100, "--max-cycles", help="Maximum decision cycles"
+    max_cycles: Optional[int] = typer.Option(
+        None, "--max-cycles", help="Maximum decision cycles (overrides config)"
     ),
     verbose: bool = typer.Option(
         True, "--verbose/--quiet", "-v/-q", help="Verbose output"
+    ),
+    config_path: Optional[Path] = typer.Option(
+        None, "--config", help="Path to custom config file"
     ),
 ):
     """
@@ -96,23 +99,29 @@ def solve(
     from cognitive_hydraulics.engine import CognitiveAgent
     from cognitive_hydraulics.core.state import EditorState, Goal
     from cognitive_hydraulics.safety import SafetyConfig
+    from cognitive_hydraulics.config import load_config
+
+    # Load configuration
+    config = load_config(custom_path=config_path)
 
     console.print(Panel.fit(
         f"[bold cyan]Goal:[/bold cyan] {goal}\n"
         f"[bold cyan]Working Directory:[/bold cyan] {working_dir}\n"
         f"[bold cyan]Dry-run:[/bold cyan] {dry_run}\n"
-        f"[bold cyan]Learning:[/bold cyan] {enable_learning}",
+        f"[bold cyan]Learning:[/bold cyan] {enable_learning}\n"
+        f"[bold cyan]Config:[/bold cyan] {config.llm_model} @ {config.llm_host}",
         title="🎯 Cognitive Agent",
         border_style="green",
     ))
 
-    # Create agent
+    # Create agent (CLI args override config)
     safety_config = SafetyConfig(dry_run=dry_run)
     agent = CognitiveAgent(
         safety_config=safety_config,
         enable_learning=enable_learning,
         chunk_store_path=str(chunk_store) if chunk_store else None,
-        max_cycles=max_cycles,
+        max_cycles=max_cycles,  # None means use config, value means override
+        config=config,
     )
 
     # Create initial state and goal

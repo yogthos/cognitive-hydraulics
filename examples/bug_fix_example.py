@@ -38,15 +38,21 @@ async def main():
 
     # Create agent with dry-run mode
     print("\n📦 Creating cognitive agent...")
-    config = SafetyConfig(
+    from cognitive_hydraulics.config import load_config
+    
+    # Load application config
+    app_config = load_config()
+    
+    safety_config = SafetyConfig(
         dry_run=True,  # Simulate without executing
         require_approval_for_destructive=False,  # Auto-approve for demo
     )
-
+    
     agent = CognitiveAgent(
-        safety_config=config,
+        safety_config=safety_config,
         enable_learning=True,  # Enable learning for better suggestions
-        max_cycles=50,  # Allow more cycles for complex analysis
+        max_cycles=50,  # Override config for complex analysis
+        config=app_config,  # Use loaded config
     )
     print("✓ Agent created")
 

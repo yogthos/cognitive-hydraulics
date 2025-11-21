@@ -15,6 +15,10 @@ from cognitive_hydraulics.engine.actr_resolver import ACTRResolver
 from cognitive_hydraulics.safety.middleware import SafetyMiddleware, SafetyConfig
 from cognitive_hydraulics.memory.chroma_store import ChunkStore
 from cognitive_hydraulics.memory.chunk import create_chunk_from_success
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from cognitive_hydraulics.config.settings import Config
 
 
 class CognitiveAgent:
@@ -30,35 +34,58 @@ class CognitiveAgent:
 
     def __init__(
         self,
-        depth_threshold: int = 3,
-        time_threshold_ms: float = 500.0,
-        max_cycles: int = 100,
+        depth_threshold: Optional[int] = None,
+        time_threshold_ms: Optional[float] = None,
+        max_cycles: Optional[int] = None,
         safety_config: Optional[SafetyConfig] = None,
         enable_learning: bool = True,
         chunk_store_path: Optional[str] = None,
+        config: Optional["Config"] = None,
     ):
         """
         Initialize the cognitive agent.
 
         Args:
-            depth_threshold: Max sub-goal depth before fallback
-            time_threshold_ms: Max time in state before fallback
-            max_cycles: Maximum decision cycles to prevent infinite loops
+            depth_threshold: Max sub-goal depth before fallback (overrides config if provided)
+            time_threshold_ms: Max time in state before fallback (overrides config if provided)
+            max_cycles: Maximum decision cycles (overrides config if provided)
             safety_config: Safety configuration (uses defaults if None)
             enable_learning: Enable chunking/learning from experience
             chunk_store_path: Path for persistent chunk storage (None = in-memory)
+            config: Configuration object (if None, uses defaults)
         """
+        if config:
+            depth = (
+                depth_threshold
+                if depth_threshold is not None
+                else config.cognitive_depth_threshold
+            )
+            time_ms = (
+                time_threshold_ms
+                if time_threshold_ms is not None
+                else config.cognitive_time_threshold_ms
+            )
+            cycles = (
+                max_cycles if max_cycles is not None else config.cognitive_max_cycles
+            )
+            self.actr_resolver = ACTRResolver(config=config)
+        else:
+            # Backward compatibility: use defaults if no config
+            depth = depth_threshold if depth_threshold is not None else 3
+            time_ms = time_threshold_ms if time_threshold_ms is not None else 500.0
+            cycles = max_cycles if max_cycles is not None else 100
+            self.actr_resolver = ACTRResolver()
+
         self.rule_engine = RuleEngine()
-        self.meta_monitor = MetaCognitiveMonitor(depth_threshold, time_threshold_ms)
+        self.meta_monitor = MetaCognitiveMonitor(depth, time_ms)
         self.impasse_detector = ImpasseDetector()
-        self.actr_resolver = ACTRResolver()  # ACT-R fallback
         self.safety = SafetyMiddleware(safety_config)  # Safety layer
 
         # Learning/Chunking system
         self.enable_learning = enable_learning
         self.chunk_store = ChunkStore(persist_directory=chunk_store_path) if enable_learning else None
 
-        self.max_cycles = max_cycles
+        self.max_cycles = cycles
         self.current_goal: Optional[Goal] = None
         self.goal_stack: list[Goal] = []  # Stack of goals (for sub-goaling)
 

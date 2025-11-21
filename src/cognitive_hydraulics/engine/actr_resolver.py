@@ -17,6 +17,10 @@ from cognitive_hydraulics.llm.schemas import (
 from cognitive_hydraulics.llm.prompts import PromptTemplates
 from cognitive_hydraulics.utils.context_manager import ContextWindowManager
 from cognitive_hydraulics.operators.file_ops import OpReadFile, OpListDirectory
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from cognitive_hydraulics.config.settings import Config
 
 
 class ACTRResolver:
@@ -35,21 +39,33 @@ class ACTRResolver:
 
     def __init__(
         self,
-        goal_value: float = 10.0,
-        noise_stddev: float = 0.5,
-        model: str = "qwen3:8b",
+        goal_value: Optional[float] = None,
+        noise_stddev: Optional[float] = None,
+        model: Optional[str] = None,
+        config: Optional["Config"] = None,
     ):
         """
         Initialize ACT-R resolver.
 
         Args:
-            goal_value: Value G in utility equation (higher = more important)
-            noise_stddev: Standard deviation for noise term
-            model: LLM model to use
+            goal_value: Value G in utility equation (overrides config if provided)
+            noise_stddev: Standard deviation for noise term (overrides config if provided)
+            model: LLM model to use (overrides config if provided)
+            config: Configuration object (if None, uses defaults)
         """
-        self.G = goal_value
-        self.noise_stddev = noise_stddev
-        self.llm = LLMClient(model=model)
+        if config:
+            self.G = goal_value if goal_value is not None else config.actr_goal_value
+            self.noise_stddev = (
+                noise_stddev if noise_stddev is not None else config.actr_noise_stddev
+            )
+            model_to_use = model if model is not None else config.llm_model
+            self.llm = LLMClient(model=model_to_use, config=config)
+        else:
+            # Backward compatibility: use defaults if no config
+            self.G = goal_value if goal_value is not None else 10.0
+            self.noise_stddev = noise_stddev if noise_stddev is not None else 0.5
+            model_to_use = model if model is not None else "qwen3:8b"
+            self.llm = LLMClient(model=model_to_use)
         self.context_manager = ContextWindowManager()
 
     async def resolve(
