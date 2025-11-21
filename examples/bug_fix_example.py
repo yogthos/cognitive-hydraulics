@@ -108,7 +108,7 @@ async def main():
         for key, value in stats.items():
             print(f"   - {key}: {value}")
 
-        if agent.chunk_store:
+        if agent.memory:
             chunk_stats = agent.chunk_store.get_stats()
             print(f"   - Chunks learned: {chunk_stats['total_chunks']}")
 

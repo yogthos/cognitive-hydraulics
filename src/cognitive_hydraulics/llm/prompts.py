@@ -69,7 +69,12 @@ Be concise, precise, and actionable. Focus on concrete steps that can be execute
 
         # Check if there's an IndexError or test failure
         has_indexerror = error and "IndexError" in error
-        has_test_failure = error and ("Tests failed" in error or "tests did not pass" in error.lower())
+        has_test_failure = error and (
+            "Tests failed" in error or
+            "tests did not pass" in error.lower() or
+            "AssertionError" in error or
+            "assert" in error.lower()
+        )
 
         if has_indexerror or has_test_failure:
             error_type = "IndexError" if has_indexerror else "test failure"

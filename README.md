@@ -3,7 +3,7 @@
 **A hybrid neuro-symbolic reasoning engine combining Soar (System 2) + ACT-R (System 1) with LLM-driven heuristics**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-199%20passing-brightgreen.svg)](https://github.com/yourusername/cognitive-hydraulics)
+[![Tests](https://img.shields.io/badge/tests-287%20passing-brightgreen.svg)](https://github.com/yourusername/cognitive-hydraulics)
 [![Coverage](https://img.shields.io/badge/coverage-67%25-yellow.svg)](https://github.com/yourusername/cognitive-hydraulics)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -26,14 +26,23 @@ Cognitive Hydraulics treats reasoning as a **pressure system** with two distinct
 - **Fast, cheap, cannot hallucinate**
 
 **🐇 System 1 (ACT-R)** - Fast, heuristic reasoning
-- Utility-based selection: U = P×G - C
+- Utility-based selection: U = P×G - C - HistoryPenalty + Noise
 - LLM for probability/cost estimation
+- Tabu Search: History penalty prevents operator loops
 - Automatic fallback on cognitive overload
+
+**🧬 Evolutionary Solver** - Genetic algorithm fallback
+- Population-based code fix generation
+- Fitness evaluation (syntax, runtime, correctness)
+- Mutation and selection for convergence
+- Triggered when ACT-R fails or pressure ≥ 0.9
 
 **🧠 The Innovation: Pressure Valve**
 - Defaults to symbolic logic (Soar)
 - Monitors cognitive "pressure" (depth, time, ambiguity)
-- Falls back to LLM heuristics when stuck
+- Falls back to LLM heuristics (ACT-R) when stuck
+- **Evolutionary fallback** when ACT-R fails or pressure very high
+- **Tabu Search** prevents infinite loops on same operators
 - **Learns** successful heuristics as new rules (chunking)
 
 ### Why This Matters
@@ -140,7 +149,11 @@ Cognitive Hydraulics uses a configuration file to manage settings. On first run,
   "actr_noise_stddev": 0.5,
   "cognitive_depth_threshold": 3,
   "cognitive_time_threshold_ms": 500.0,
-  "cognitive_max_cycles": 100
+  "cognitive_max_cycles": 100,
+  "cognitive_history_penalty_multiplier": 2.0,
+  "evolution_enabled": true,
+  "evolution_population_size": 3,
+  "evolution_max_generations": 3
 }
 ```
 
@@ -154,6 +167,10 @@ Cognitive Hydraulics uses a configuration file to manage settings. On first run,
 - `cognitive_depth_threshold`: Max sub-goal depth before fallback (default: `3`)
 - `cognitive_time_threshold_ms`: Max time in state before fallback in ms (default: `500.0`)
 - `cognitive_max_cycles`: Maximum decision cycles (default: `100`)
+- `cognitive_history_penalty_multiplier`: Tabu Search penalty multiplier (default: `2.0`)
+- `evolution_enabled`: Enable evolutionary solver fallback (default: `true`)
+- `evolution_population_size`: Number of candidates in population (default: `3`, range: 2-10)
+- `evolution_max_generations`: Maximum generations for evolution (default: `3`, range: 1-10)
 
 **CLI Override:** Command-line arguments override config values. For example, `--max-cycles 50` will override `cognitive_max_cycles` from the config file.
 
@@ -249,10 +266,21 @@ flowchart TD
 
     CheckPressure -->|Low Pressure| CreateSubgoal[Create Sub-Goal<br/>Stay in Soar]
     CheckPressure -->|High Pressure| ACTR[🚨 ACT-R Fallback]
+    CheckPressure -->|Very High ≥0.9| Evolution[🧬 Evolutionary Solver]
 
     ACTR --> LLM[🤖 Query LLM for<br/>Utility Estimates]
-    LLM --> CalcUtility[Calculate U = P×G - C + Noise]
-    CalcUtility --> SelectBest[Select Highest Utility]
+    LLM --> CalcUtility[Calculate U = P×G - C - Penalty + Noise]
+    CalcUtility --> CheckHistory{History<br/>Penalty?}
+    CheckHistory -->|Repeated Op| ApplyPenalty[Apply Tabu Penalty<br/>Prevent Loops]
+    CheckHistory -->|New Op| SelectBest[Select Highest Utility]
+    ApplyPenalty --> SelectBest
+
+    ACTR -->|Failed| Evolution
+    Evolution --> GeneratePop[Generate Population<br/>of Fix Candidates]
+    GeneratePop --> Evaluate[Evaluate Fitness<br/>Syntax/Runtime/Correctness]
+    Evaluate --> SelectBest[Select Best Candidate]
+    SelectBest -->|Not Perfect| Mutate[Mutate & Evolve]
+    Mutate --> Evaluate
 
     SelectBest --> SafetyCheck{Safety Check}
     SafetyCheck -->|Destructive/Low U| Approval[🚨 Request Human Approval]
@@ -306,12 +334,21 @@ stateDiagram-v2
 
     CalculatingPressure --> CreatingSubgoal: Pressure < 0.7 (CALM/ELEVATED)
     CalculatingPressure --> ACTRFallback: Pressure ≥ 0.7 (HIGH/CRITICAL)
+    CalculatingPressure --> EvolutionaryFallback: Pressure ≥ 0.9 OR ACT-R Failed
 
     CreatingSubgoal --> Proposing: Sub-goal Created
 
     ACTRFallback --> QueryingLLM: System 1 Engaged
     QueryingLLM --> EstimatingUtility: Get P (Probability) & C (Cost)
-    EstimatingUtility --> SelectingOperator: Calculate U = P×G - C
+    EstimatingUtility --> ApplyingHistoryPenalty: Apply Tabu Search Penalty
+    ApplyingHistoryPenalty --> SelectingOperator: Calculate U = P×G - C - Penalty
+
+    EvolutionaryFallback --> GeneratingPopulation: Generate Diverse Fix Candidates
+    GeneratingPopulation --> EvaluatingFitness: Score Each Candidate (0-100)
+    EvaluatingFitness --> SelectingBest: Select Highest Score
+    SelectingBest -->|Score < 100| MutatingCandidate: Mutate Based on Feedback
+    MutatingCandidate --> EvaluatingFitness: Re-evaluate
+    SelectingBest -->|Score = 100| ApplyingFix: Apply Perfect Fix
 
     SelectingOperator --> CheckingSafety: Operator Selected
 
@@ -380,13 +417,21 @@ graph TB
     end
 
     subgraph "ACT-R (System 1 - Heuristic)"
-        AR[ACT-R Resolver<br/>Utility Calculator]
+        AR[ACT-R Resolver<br/>Utility Calculator<br/>+ Tabu Search]
         LC[LLM Client<br/>Ollama + JSON Schema]
         PT[Prompt Templates<br/>Context-Aware]
+        WM[Working Memory<br/>Action Counts]
+    end
+
+    subgraph "Evolutionary Solver"
+        ES[Evolutionary Solver<br/>Genetic Algorithm]
+        CE[Code Evaluator<br/>Fitness Function]
+        GP[Population Generator<br/>LLM-Driven]
     end
 
     subgraph "Learning System"
-        CS[Chunk Store<br/>ChromaDB]
+        UM[Unified Memory<br/>ChromaDB]
+        CS[Chunk Store<br/>Operational Memory]
         CH[Chunk Model<br/>Activation + Success Rate]
     end
 
@@ -404,12 +449,21 @@ graph TB
     WM --> ID
     ID --> MM
     MM -->|Pressure ≥ 0.7| AR
+    MM -->|Pressure ≥ 0.9| ES
     AR --> LC
+    AR --> WM
     LC --> PT
     PT --> CM
+    AR -->|Failed| ES
+    ES --> GP
+    GP --> LC
+    ES --> CE
+    CE --> ES
     AR --> SM
     SM --> HA
-    AR -->|Success| CS
+    AR -->|Success| UM
+    ES -->|Success| UM
+    UM --> CS
     CS --> CH
     CH -->|Retrieval| RE
     TS --> CM
@@ -417,6 +471,9 @@ graph TB
     style RE fill:#90EE90
     style AR fill:#FFD700
     style MM fill:#87CEEB
+    style ES fill:#FF69B4
+    style CE fill:#FF69B4
+    style UM fill:#DDA0DD
     style CS fill:#DDA0DD
     style SM fill:#FF6B6B
 ```
@@ -465,14 +522,23 @@ graph TB
 │   │ 4. LLM UTILITY ESTIMATION            │           │
 │   │    • Compress state for LLM          │           │
 │   │    • Query: "What's P and C?"        │           │
-│   │    • Calculate: U = P×G - C + noise  │           │
+│   │    • Apply Tabu penalty (history)    │           │
+│   │    • Calculate: U = P×G - C - Penalty│           │
 │   │    • Select highest utility          │           │
+│   └─────────────────────────────────────┘           │
+│                     ↓ (if ACT-R fails or pressure ≥ 0.9)
+│   ┌─────────────────────────────────────┐           │
+│   │ 4b. EVOLUTIONARY SOLVER              │           │
+│   │    • Generate population (3-10)     │           │
+│   │    • Evaluate fitness (0-100)       │           │
+│   │    • Mutate best candidate          │           │
+│   │    • Evolve until perfect (≤3 gen)  │           │
 │   └─────────────────────────────────────┘           │
 │                     ↓                                │
 │   ┌─────────────────────────────────────┐           │
 │   │ 5. LEARN (Chunking)                  │           │
 │   │    • If success → Create chunk       │           │
-│   │    • Store in ChromaDB               │           │
+│   │    • Store in Unified Memory         │           │
 │   │    • Next time: Skip LLM, use chunk  │           │
 │   └─────────────────────────────────────┘           │
 └─────────────────────────────────────────────────────┘
@@ -487,11 +553,13 @@ graph TB
 - **Sub-goaling**: Hierarchical goal decomposition
 
 #### 2. **ACT-R Resolver** (System 1)
-- **Utility Formula**: U = P×G - C + Noise
+- **Utility Formula**: U = P×G - C - HistoryPenalty + Noise
   - P: Probability of success (LLM estimate)
   - G: Goal value (configurable, default 10.0)
   - C: Cost (LLM estimate, 1-10 scale)
+  - HistoryPenalty: Tabu Search penalty (action_count × multiplier, default 2.0)
   - Noise: Exploration (Gaussian, σ=0.5)
+- **Tabu Search**: Prevents infinite loops by penalizing repeated operators
 - **LLM Integration**: Ollama with JSON schema enforcement
 - **Structured Prompts**: Context-aware, explains formula
 
@@ -504,20 +572,34 @@ graph TB
 - **Fallback Trigger**: pressure ≥ 0.7
 - **Status Display**: 🟢 CALM → 🟡 ELEVATED → 🟠 HIGH → 🔴 CRITICAL
 
-#### 4. **Learning System** (Chunking)
+#### 4. **Evolutionary Solver** (Genetic Algorithm Fallback)
+- **Population Generation**: LLM generates 3-10 distinct fix candidates
+- **Fitness Function**: CodeEvaluator scores each candidate (0-100)
+  - Syntax validation (AST parsing)
+  - Runtime validation (execution without exceptions)
+  - Correctness validation (test execution and passing)
+- **Selection & Mutation**: Best candidate is mutated based on fitness feedback
+- **Convergence**: Evolves through generations until perfect solution (score=100)
+- **Trigger Conditions**:
+  - ACT-R fails to generate/evaluate operators
+  - Cognitive pressure ≥ 0.9 (very high)
+  - Only for code-fixing goals
+
+#### 5. **Learning System** (Chunking)
+- **Unified Memory**: Combines operational memory (goal stack) and chunking
 - **Chunk Model**: (State Signature, Operator, Success Rate)
 - **Activation**: A = ln(frequency) - decay×time
-- **ChromaDB**: Semantic similarity search
+- **ChromaDB**: Semantic similarity search for both chunks and past solutions
 - **Success Filtering**: Only use chunks with >70% success rate
 - **10x Speedup**: Skip LLM when chunk matches
 
-#### 5. **Safety Layer**
+#### 6. **Safety Layer**
 - **Human Approval**: Required for destructive operations
 - **Utility-Based Safety**: Approval if U < 3.0
 - **Dry-Run Mode**: Simulate without executing
 - **Auto-Approval**: Safe operations (read, list, search)
 
-#### 6. **Tree-Sitter Integration**
+#### 7. **Tree-Sitter Integration**
 - **Multi-Language AST**: Python, JS, TS, Rust, Go, Java, C, C++
 - **Intelligent Extraction**: Functions, classes, imports
 - **Context Compression**: Relevant code for LLM prompts
@@ -544,9 +626,17 @@ graph TB
 
 ### ✅ **Learning from Experience**
 - Chunking system (ACT-R → Soar rules)
+- Unified Memory: Operational memory + chunking
 - ChromaDB semantic memory
 - Persistent storage option
 - 10x speedup on repeated patterns
+
+### ✅ **Evolutionary Problem Solving**
+- Genetic algorithm for code fixes
+- Population-based candidate generation
+- Fitness evaluation (syntax, runtime, correctness)
+- Mutation and convergence
+- Tabu Search prevents operator loops
 
 ### ✅ **Explainable Reasoning**
 - Full decision cycle traces
@@ -668,9 +758,9 @@ solve OPTIONS:
 - ✅ **Phase 8**: Documentation & Polish
 
 **Statistics:**
-- 🧪 199 tests passing
+- 🧪 287 tests passing
 - 📊 67% code coverage
-- 📦 1,321 lines of production code
+- 📦 2,900+ lines of production code
 - 🎯 Zero linting errors
 - 🚀 Production ready
 

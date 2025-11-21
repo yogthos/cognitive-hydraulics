@@ -1,211 +1,216 @@
-<!-- 9ef7207b-3260-4f78-9c4a-f89ba569a606 52821cb6-fa4a-46de-b881-9c552e5baa64 -->
-# Persistent Memory System Implementation
+<!-- 9ef7207b-3260-4f78-9c4a-f89ba569a606 136252c2-c592-49f2-a3d7-5b896344d71b -->
+# Evolutionary Strategy Implementation Plan
 
 ## Overview
 
-Implement a ChromaDB-backed persistent goal stack that enables crash recovery and semantic retrieval of past solutions. This merges the existing ChunkStore with a new OperationalMemory system.
+Implement an Evolutionary Strategy (ES) system as a fallback when ACT-R fails or pressure is very high, preventing infinite loops on operators like `read_file` and evolving better solutions through genetic algorithms.
 
-## Phase 1: Create Memory Schema
+## Phase 1: Tabu Search - History Tracking
 
-Create `src/cognitive_hydraulics/memory/context_node.py` with the ContextNode model:
+### 1.1 Add Action Count Tracking to WorkingMemory
 
-```python
-from pydantic import BaseModel, Field
-from typing import Optional
-from uuid import uuid4
+**File:** `src/cognitive_hydraulics/core/working_memory.py`
 
-class ContextNode(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    parent_id: Optional[str] = None  # None = Root Goal
-    goal_description: str
-    current_state_snapshot: str
-    status: str = "active"  # active, success, failed, paused
-    created_at: float
-    depth: int = 0
-    
-    # Optional: Store key operator info for impasse resolutions
-    resolution_operator: Optional[str] = None
-    resolution_reasoning: Optional[str] = None
-```
+- Add `action_counts: Dict[str, int] = {}` to track operator usage
+- Update `record_transition()` to increment count for each operator name
+- Add method `get_action_count(operator_name: str) -> int` to retrieve counts
+- Add method `reset_action_counts()` for testing/cleanup
 
-## Phase 2: Create Unified Memory System
+### 1.2 Modify ACT-R Utility Calculation
 
-Create `src/cognitive_hydraulics/memory/unified_memory.py` that merges ChunkStore functionality with OperationalMemory:
+**File:** `src/cognitive_hydraulics/engine/actr_resolver.py`
 
-**Key features:**
+- Update `resolve()` method to accept `working_memory: Optional[WorkingMemory] = None`
+- Modify utility calculation in the loop (around line 142):
+  ```python
+  # Get history penalty
+  history_penalty = 0.0
+  if working_memory:
+      action_count = working_memory.get_action_count(op.name)
+      history_penalty = action_count * 2.0  # Penalty per attempt
+  
+  U = P * self.G - C - history_penalty + noise
+  ```
 
-- Two ChromaDB collections: "goal_stack" (contexts) and "chunks" (learned rules)
-- Goal stack operations: push_context(), pop_context(), get_active_context()
-- Semantic retrieval: retrieve_relevant_history() for similar past solutions
-- Chunk learning: Migrate existing ChunkStore methods (store_chunk, retrieve_chunks)
+- Update call sites in `cognitive_agent.py` to pass `working_memory` to `resolve()`
 
-**Core methods from memory.md:**
+### 1.3 Update CognitiveAgent Integration
 
-```python
-def push_context(self, goal: str, state: str, parent_id: Optional[str] = None) -> str
-def pop_context(self, status: str = "success", resolution_op: Optional[str] = None) -> Optional[str]
-def get_active_context() -> Optional[dict]
-def retrieve_relevant_history(self, query: str, max_results: int = 3) -> List[str]
-def get_context_chain() -> List[dict]  # For debugging: full parent chain
-```
+**File:** `src/cognitive_hydraulics/engine/cognitive_agent.py`
 
-**Integration strategy:**
+- Pass `self.working_memory` to `actr_resolver.resolve()` calls (around lines 343 and 458)
 
-- Use existing `_get_client()` pattern from `chroma_store.py`
-- Handle Python 3.14+ compatibility gracefully (same error handling)
-- Store ContextNode as metadata + embedded text (goal + parent + state)
+## Phase 2: Code Evaluator
 
-## Phase 3: Migrate CognitiveAgent to Use UnifiedMemory
+### 2.1 Create CodeEvaluator Class
 
-Update `src/cognitive_hydraulics/engine/cognitive_agent.py`:
+**File:** `src/cognitive_hydraulics/engine/evaluator.py` (new file)
 
-**Changes:**
+- Class `CodeEvaluator` with method `evaluate(code: str, test_code: Optional[str] = None) -> EvaluationResult`
+- `EvaluationResult` dataclass with:
+  - `score: int` (0-100)
+  - `syntax_valid: bool`
+  - `runtime_valid: bool`
+  - `correctness_valid: bool`
+  - `error_message: Optional[str]`
+  - `output: Optional[str]`
+- Implementation:
+  - Syntax check: Use `ast.parse()` to validate Python syntax
+  - Runtime check: Execute code in subprocess with timeout (10s)
+  - Correctness check: If test_code provided, run it and check for "All tests passed"
+  - Score calculation:
+    - Syntax error: 0
+    - Runtime error: 10-30 (depending on error type)
+    - Runs but fails tests: 40-60
+    - Runs and passes tests: 100
 
-1. Replace `self.chunk_store = ChunkStore()` with `self.memory = UnifiedMemory()`
-2. Keep `self.goal_stack: List[Goal]` for in-memory tracking, but back it with UnifiedMemory
-3. Update `_push_goal()`:
-   ```python
-   def _push_goal(self, goal: Goal) -> None:
-       self.goal_stack.append(goal)
-       self.current_goal = goal
-       # NEW: Persist to memory
-       state_snapshot = self._create_state_snapshot(self.working_memory.current_state)
-       context_id = self.memory.push_context(
-           goal=goal.description,
-           state=state_snapshot,
-           parent_id=self.current_context_id
-       )
-       self.current_context_id = context_id
-   ```
+## Phase 3: Evolutionary Solver
 
-4. Update `_pop_goal()`:
-   ```python
-   def _pop_goal(self) -> Optional[Goal]:
-       if len(self.goal_stack) > 1:
-           old_goal = self.goal_stack.pop()
-           self.current_goal = self.goal_stack[-1]
-           # NEW: Persist to memory
-           status = "success" if old_goal.status == "success" else "failed"
-           self.current_context_id = self.memory.pop_context(status=status)
-           return self.current_goal
-       return None
-   ```
+### 3.1 Create EvolutionarySolver Class
 
-5. Store impasse resolutions in memory when ACT-R is used:
+**File:** `src/cognitive_hydraulics/engine/evolution.py` (new file)
 
-   - In `_handle_impasse()`, after ACT-R resolves, call `memory.update_context_resolution()`
+- Class `EvolutionarySolver` with:
+  - `__init__(llm_client: LLMClient, evaluator: CodeEvaluator, config: Optional[Config] = None)`
+  - `generate_population(error_context: str, goal: str, n: int = 4) -> List[CodeCandidate]`
+  - `evaluate_candidates(candidates: List[CodeCandidate], original_code: str) -> List[tuple[CodeCandidate, int]]`
+  - `mutate(candidate: CodeCandidate, fitness_report: str) -> CodeCandidate`
+  - `evolve(error_context: str, goal: str, original_code: str, generations: int = 3) -> Optional[CodeCandidate]`
 
-## Phase 4: Integrate Semantic Retrieval into ACT-R
+### 3.2 CodeCandidate Schema
 
-Update `src/cognitive_hydraulics/engine/actr_resolver.py`:
+**File:** `src/cognitive_hydraulics/llm/schemas.py`
 
-**In `generate_operators()` method:**
+- Add `CodeCandidate` Pydantic model:
+  ```python
+  class CodeCandidate(BaseModel):
+      hypothesis: str  # Description of the fix
+      code_patch: str  # The actual code change
+      reasoning: str   # Why this approach
+  ```
 
-1. Before querying LLM, retrieve similar past solutions:
-   ```python
-   # NEW: Check memory for similar past solutions
-   if hasattr(self, 'memory') and self.memory:
-       similar_solutions = self.memory.retrieve_relevant_history(
-           query=error or goal.description,
-           max_results=2
-       )
-       if similar_solutions:
-           # Inject into prompt
-           context_additions.append("PAST SOLUTIONS:")
-           for sol in similar_solutions:
-               context_additions.append(f"- {sol}")
-   ```
-
-2. Pass this context to `PromptTemplates.generate_operators_prompt()`
-
-**Update prompt template in `src/cognitive_hydraulics/llm/prompts.py`:**
-
-- Add optional `past_solutions: List[str]` parameter
-- Inject them into the prompt: "Note: Similar issues were previously resolved using..."
-
-## Phase 5: Add Crash Recovery Support
-
-Update `src/cognitive_hydraulics/cli/main.py`:
-
-**Add --resume flag:**
-
-```python
-@app.command()
-def solve(
-    goal: str,
-    # ... existing params ...
-    resume: bool = typer.Option(False, "--resume", help="Resume from last active context"),
-):
-    # NEW: Check for active contexts if --resume
-    if resume:
-        memory = UnifiedMemory(...)
-        active_context = memory.get_active_context()
-        if active_context:
-            print(f"Resuming from: {active_context['goal_description']}")
-            # Reconstruct state from context
-            agent.current_context_id = active_context['id']
-            agent.goal_stack = [Goal(description=active_context['goal_description'])]
-        else:
-            print("No active context found to resume")
-            return
-```
-
-**On crash/interruption:**
-
-- UnifiedMemory persists contexts to disk automatically (ChromaDB handles this)
-- Active contexts remain with status="active" until explicitly popped
-
-## Phase 6: Update Existing References
-
-1. Update `src/cognitive_hydraulics/memory/__init__.py`:
-
-   - Export `UnifiedMemory` instead of `ChunkStore`
-   - Keep backward compatibility by aliasing: `ChunkStore = UnifiedMemory`
-
-2. Update imports in:
-
-   - `cognitive_agent.py`: Use `UnifiedMemory`
-   - Any tests that use `ChunkStore`
-
-3. Update initialization in `cognitive_agent.py`:
-   ```python
-   if enable_learning:
-       self.memory = UnifiedMemory(persist_directory=chunk_store_path)
-       self.current_context_id = None
-   ```
+- Add `PopulationProposal` schema for LLM response:
+  ```python
+  class PopulationProposal(BaseModel):
+      candidates: List[CodeCandidate]
+  ```
 
 
-## Testing Strategy
+### 3.3 LLM Prompts for Evolution
 
-1. Unit tests for UnifiedMemory:
+**File:** `src/cognitive_hydraulics/llm/prompts.py`
 
-   - Test push/pop operations
-   - Test semantic retrieval
-   - Test context chain traversal
+- Add `generate_population_prompt(error_context: str, goal: str, n: int) -> str`:
+  - Prompt LLM to generate `n` distinct hypotheses
+  - Emphasize diversity (no repeating `read_file`)
+  - Request code patches, not just descriptions
+- Add `mutate_candidate_prompt(candidate: CodeCandidate, fitness_report: str) -> str`:
+  - Use the guidance template from ga.md
+  - Focus on fixing specific failures (syntax/runtime/correctness)
 
-2. Integration test for crash recovery:
+### 3.4 Evolutionary Algorithm Logic
 
-   - Start solve, interrupt mid-cycle
-   - Run with --resume, verify it continues
+**File:** `src/cognitive_hydraulics/engine/evolution.py`
 
-3. Test semantic retrieval in ACT-R:
+- `evolve()` method:
 
-   - Create two similar bugs in sequence
-   - Verify second bug retrieves solution from first
+  1. Generate initial population (4 candidates)
+  2. For each generation (up to 3):
 
-## Migration Notes
+     - Evaluate all candidates
+     - If any candidate scores 100, return it
+     - Select best candidate
+     - Mutate best candidate based on fitness report
+     - Add mutated candidate to next generation
+     - Generate 3 new diverse candidates to fill population
 
-- Existing ChunkStore data remains compatible (same "chunks" collection)
-- New "goal_stack" collection created automatically on first use
-- Gracefully handle ChromaDB unavailability (Python 3.14+)
-- If ChromaDB fails, fall back to in-memory goal stack only
+  1. Return best candidate found (even if < 100)
+
+## Phase 4: Integration with CognitiveAgent
+
+### 4.1 Add Evolutionary Fallback Trigger
+
+**File:** `src/cognitive_hydraulics/engine/cognitive_agent.py`
+
+- Add `EvolutionarySolver` instance to `__init__()` (requires `CodeEvaluator`)
+- Modify `_handle_impasse()` method:
+  - When pressure >= 0.9 OR when NO_CHANGE impasse persists after ACT-R:
+    - Check if goal involves code fixing (keywords: "fix", "bug", "error", "sort")
+    - If yes, trigger `EvolutionarySolver.evolve()`
+    - Apply winning patch using `OpApplyFix` operator
+- Add configuration option `enable_evolution: bool = True` to CognitiveAgent
+
+### 4.2 Error Context Extraction
+
+**File:** `src/cognitive_hydraulics/engine/cognitive_agent.py`
+
+- Add helper method `_extract_error_context(state: EditorState) -> str`:
+  - Extract error from `state.error_log`
+  - Extract relevant code from open files
+  - Format as context string for evolutionary solver
+
+## Phase 5: Testing
+
+### 5.1 Unit Tests
+
+**File:** `tests/unit/test_evaluator.py` (new)
+
+- Test syntax validation
+- Test runtime validation
+- Test correctness validation
+- Test score calculation
+
+**File:** `tests/unit/test_evolution.py` (new)
+
+- Test population generation
+- Test candidate evaluation
+- Test mutation
+- Test evolution loop
+
+**File:** `tests/unit/test_working_memory_action_counts.py` (new)
+
+- Test action count tracking
+- Test history penalty calculation
+
+### 5.2 Integration Tests
+
+**File:** `tests/integration/test_evolutionary_fallback.py` (new)
+
+- Test full flow: impasse -> evolution -> fix application
+- Test that history penalty prevents loops
+
+## Configuration
+
+### Config Updates
+
+**File:** `src/cognitive_hydraulics/config/settings.py`
+
+- Add optional fields:
+  - `evolution_enabled: bool = True`
+  - `evolution_population_size: int = 4`
+  - `evolution_max_generations: int = 3`
+  - `history_penalty_multiplier: float = 2.0`
+
+## Files to Create
+
+1. `src/cognitive_hydraulics/engine/evaluator.py`
+2. `src/cognitive_hydraulics/engine/evolution.py`
+3. `tests/unit/test_evaluator.py`
+4. `tests/unit/test_evolution.py`
+5. `tests/unit/test_working_memory_action_counts.py`
+6. `tests/integration/test_evolutionary_fallback.py`
+
+## Files to Modify
+
+1. `src/cognitive_hydraulics/core/working_memory.py` - Add action_counts
+2. `src/cognitive_hydraulics/engine/actr_resolver.py` - Add history penalty
+3. `src/cognitive_hydraulics/engine/cognitive_agent.py` - Integrate evolutionary solver
+4. `src/cognitive_hydraulics/llm/schemas.py` - Add CodeCandidate schema
+5. `src/cognitive_hydraulics/llm/prompts.py` - Add evolution prompts
+6. `src/cognitive_hydraulics/config/settings.py` - Add evolution config
 
 ### To-dos
 
-- [ ] Investigate ChromaDB Python 3.14 compatibility issue
-- [ ] Add warning suppression for ChromaDB Pydantic V1 warning
-- [ ] Add graceful error handling for ChromaDB import failures
-- [ ] Document Python 3.14 compatibility limitations
 - [ ] Create ContextNode schema in memory/context_node.py
 - [ ] Create UnifiedMemory class merging OperationalMemory + ChunkStore
 - [ ] Update CognitiveAgent to use UnifiedMemory for goal stack

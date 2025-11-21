@@ -212,6 +212,11 @@ class ACTRResolver:
             # Get recent error if available
             error = state.error_log[-1] if state.error_log else None
 
+            # Check if error is actually a test failure (AssertionError)
+            if error and ("AssertionError" in error or "assert" in error.lower()):
+                # This is a test failure, not just a runtime error
+                error = f"Tests failed: {error}"
+
             # Check if tests exist but didn't pass (even if no error in error_log)
             if not error and state.last_output:
                 # Check if file has test functions and tests didn't pass
