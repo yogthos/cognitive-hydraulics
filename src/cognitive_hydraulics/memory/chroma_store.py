@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import List, Optional
 import json
+import warnings
+
+# Suppress ChromaDB Pydantic V1 compatibility warnings for Python 3.14+
+warnings.filterwarnings("ignore", category=UserWarning, module="chromadb")
 
 from cognitive_hydraulics.memory.chunk import Chunk, create_state_signature
 from cognitive_hydraulics.core.state import EditorState
@@ -49,6 +53,15 @@ class ChunkStore:
                 raise ImportError(
                     "chromadb-client package required. Install with: pip install chromadb-client"
                 )
+            except Exception as e:
+                # Handle Python 3.14+ compatibility issues with ChromaDB
+                error_msg = (
+                    f"ChromaDB is not compatible with Python 3.14+. "
+                    f"Error: {type(e).__name__}: {e}\n"
+                    f"Please use Python 3.10, 3.11, or 3.12 for full functionality, "
+                    f"or wait for ChromaDB to update their Pydantic V1 dependencies."
+                )
+                raise RuntimeError(error_msg) from e
         return self._client
 
     def _get_collection(self):

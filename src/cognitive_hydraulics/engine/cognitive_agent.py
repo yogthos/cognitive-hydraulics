@@ -83,7 +83,20 @@ class CognitiveAgent:
 
         # Learning/Chunking system
         self.enable_learning = enable_learning
-        self.chunk_store = ChunkStore(persist_directory=chunk_store_path) if enable_learning else None
+        if enable_learning:
+            try:
+                # Suppress ChromaDB Pydantic V1 warnings for Python 3.14+
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=UserWarning, module="chromadb")
+                    self.chunk_store = ChunkStore(persist_directory=chunk_store_path)
+            except (RuntimeError, Exception) as e:
+                # ChromaDB not available (e.g., Python 3.14+ incompatibility)
+                # Note: Warning will be shown when learning is actually attempted
+                self.chunk_store = None
+                self.enable_learning = False  # Disable learning if ChromaDB unavailable
+        else:
+            self.chunk_store = None
 
         self.max_cycles = cycles
         self.current_goal: Optional[Goal] = None
