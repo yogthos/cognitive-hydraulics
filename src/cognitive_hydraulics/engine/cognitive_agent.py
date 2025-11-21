@@ -251,13 +251,13 @@ class CognitiveAgent:
                 # NO_CHANGE impasse - generate operators using LLM
                 if verbose:
                     print(f"   🤖 Generating operators using ACT-R...")
-                
+
                 generated_ops = await self.actr_resolver.generate_operators(
                     self.working_memory.current_state,
                     self.current_goal,
                     verbose=verbose,
                 )
-                
+
                 if generated_ops:
                     # Evaluate the generated operators and pick the best
                     result = await self.actr_resolver.resolve(
@@ -266,18 +266,18 @@ class CognitiveAgent:
                         self.current_goal,
                         verbose=verbose,
                     )
-                    
+
                     if result:
                         operator, utility = result
-                        
+
                         # Track for chunking
                         if self.enable_learning:
                             self._last_actr_operator = operator
                             self._last_actr_utility = utility
                             self._last_actr_state = self.working_memory.current_state.model_copy(deep=True)
-                        
+
                         await self._apply_operator(operator, utility, verbose)
-                        
+
                         # LEARNING: If operator succeeded, create chunk
                         if self.enable_learning and self.chunk_store:
                             last_transition = self.working_memory.history[-1] if self.working_memory.history else None
@@ -291,7 +291,7 @@ class CognitiveAgent:
                                 if verbose:
                                     print(f"   💾 Learning: Created chunk {chunk.id[:8]}...")
                                 self.chunk_store.store_chunk(chunk)
-                        
+
                         return True
                     else:
                         if verbose:
@@ -313,13 +313,13 @@ class CognitiveAgent:
                 # No operators - use ACT-R to generate them
                 if verbose:
                     print(f"   🤖 Generating operators using ACT-R (low pressure)...")
-                
+
                 generated_ops = await self.actr_resolver.generate_operators(
                     self.working_memory.current_state,
                     self.current_goal,
                     verbose=verbose,
                 )
-                
+
                 if generated_ops:
                     # Evaluate and pick the best
                     result = await self.actr_resolver.resolve(
@@ -328,7 +328,7 @@ class CognitiveAgent:
                         self.current_goal,
                         verbose=verbose,
                     )
-                    
+
                     if result:
                         operator, utility = result
                         await self._apply_operator(operator, utility, verbose)

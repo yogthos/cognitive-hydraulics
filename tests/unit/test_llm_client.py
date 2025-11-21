@@ -20,7 +20,7 @@ class TestLLMClient:
         """Test creating client with defaults."""
         client = LLMClient()
 
-        assert client.model == "qwen2.5:8b"
+        assert client.model == "qwen3:8b"
         assert "localhost" in client.host
 
     def test_lazy_client_initialization(self):

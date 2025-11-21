@@ -37,7 +37,7 @@ class ACTRResolver:
         self,
         goal_value: float = 10.0,
         noise_stddev: float = 0.5,
-        model: str = "qwen2.5:8b",
+        model: str = "qwen3:8b",
     ):
         """
         Initialize ACT-R resolver.

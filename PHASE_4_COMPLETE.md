@@ -351,7 +351,7 @@ pytest tests/ -v
 ollama serve
 
 # Pull model
-ollama pull qwen2.5:8b
+ollama pull qwen3:8b
 
 # Run integration tests
 pytest tests/integration/ -v

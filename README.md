@@ -61,7 +61,7 @@ Current AI agents get stuck in "loops of doom" because they use LLMs for *everyt
 curl -fsSL https://ollama.com/install.sh | sh
 
 # Pull the model (8B parameter model, good balance of speed/quality)
-ollama pull qwen2.5:8b
+ollama pull qwen3:8b
 ```
 
 ### Installation

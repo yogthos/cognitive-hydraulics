@@ -17,7 +17,7 @@ class LLMClient:
     This is a lightweight wrapper that enforces structured output.
     """
 
-    def __init__(self, model: str = "qwen2.5:8b", host: str = "http://localhost:11434"):
+    def __init__(self, model: str = "qwen3:8b", host: str = "http://localhost:11434"):
         """
         Initialize LLM client.
 
