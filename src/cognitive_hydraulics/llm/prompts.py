@@ -50,17 +50,66 @@ Be concise, precise, and actionable. Focus on concrete steps that can be execute
                 parts.append(f"\n{filepath}:")
                 parts.append(f"```\n{code[:500]}\n```")  # Truncate long code
 
-        parts.extend(
-            [
-                "",
-                "The symbolic reasoning system has no applicable rules for this situation.",
-                "Suggest 2-3 concrete operators that could make progress toward the goal.",
-                "",
-                "Available operator types:",
-                "- read_file: Read a file (parameters: {'path': 'filename'})",
-                "- list_dir: List directory contents (parameters: {'path': 'dirname'})",
-                "",
-                "IMPORTANT: You must respond with valid JSON matching this exact schema:",
+        # Check if there's an IndexError or test failure
+        has_indexerror = error and "IndexError" in error
+        has_test_failure = error and ("Tests failed" in error or "tests did not pass" in error.lower())
+
+        if has_indexerror or has_test_failure:
+            error_type = "IndexError" if has_indexerror else "test failure"
+            parts.extend(
+                [
+                    "",
+                    f"IMPORTANT: An {error_type} has been detected. The system needs to fix this bug.",
+                    "Generate 2-3 different fix strategies as operators. Each fix should:",
+                    "1. Describe the fix strategy (e.g., 'Decrease Range', 'Fix Loop Condition', 'Correct Algorithm')",
+                    "2. Provide the complete fixed code for the file",
+                    "3. Explain why this fix works",
+                    "",
+                    "Available operator types:",
+                    "- apply_fix: Apply a code fix (parameters: {'path': 'filename', 'fix_description': 'description', 'fixed_content': 'full file content'})",
+                    "- read_file: Read a file (parameters: {'path': 'filename'})",
+                    "- list_dir: List directory contents (parameters: {'path': 'dirname'})",
+                    "",
+                ]
+            )
+        else:
+            parts.extend(
+                [
+                    "",
+                    "The symbolic reasoning system has no applicable rules for this situation.",
+                    "Suggest 2-3 concrete operators that could make progress toward the goal.",
+                    "",
+                    "Available operator types:",
+                    "- read_file: Read a file (parameters: {'path': 'filename'})",
+                    "- list_dir: List directory contents (parameters: {'path': 'dirname'})",
+                    "",
+                ]
+            )
+
+        parts.extend([
+            "",
+            "IMPORTANT: You must respond with valid JSON matching this exact schema:",
+        ])
+
+        if has_indexerror or has_test_failure:
+            parts.extend([
+                "{",
+                '  "operators": [',
+                '    {',
+                '      "name": "apply_fix",',
+                '      "parameters": {',
+                '        "path": "sort.py",',
+                '        "fix_description": "Fix description (e.g., Decrease Range: change range(0, n-i) to range(0, n-i-1))",',
+                '        "fixed_content": "def bubbleSort(arr):\\n    n = len(arr)\\n    ... (complete fixed code with all fixes applied)"',
+                '      },',
+                '      "reasoning": "This fix addresses the issue"',
+                "    }",
+                "  ],",
+                '  "reasoning": "Overall explanation of why these fixes help"',
+                "}",
+            ])
+        else:
+            parts.extend([
                 "{",
                 '  "operators": [',
                 '    {',
@@ -71,6 +120,9 @@ Be concise, precise, and actionable. Focus on concrete steps that can be execute
                 "  ],",
                 '  "reasoning": "Overall explanation of why these operators help"',
                 "}",
+            ])
+
+        parts.extend([
                 "",
                 "Each operator must have:",
                 "- 'name': The operator name (e.g., 'read_file', 'list_dir')",
@@ -113,9 +165,21 @@ Be concise, precise, and actionable. Focus on concrete steps that can be execute
             f"- Open files: {state_summary.get('open_files', [])}",
         ]
 
+        # Get error from state_summary or recent errors
         error = state_summary.get("error")
+        if not error and state_summary.get("recent_errors"):
+            error = state_summary["recent_errors"][-1] if state_summary["recent_errors"] else None
         if error:
             parts.extend(["", f"RECENT ERROR: {error}"])
+
+        # Add relevant code context if available
+        relevant_code = state_summary.get("relevant_code", {})
+        if relevant_code:
+            parts.append("")
+            parts.append("RELEVANT CODE:")
+            for filepath, code in list(relevant_code.items())[:1]:  # Limit to 1 file for utility eval
+                parts.append(f"\n{filepath}:")
+                parts.append(f"```\n{code[:800]}\n```")  # Truncate long code
 
         parts.extend(
             [

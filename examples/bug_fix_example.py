@@ -1,42 +1,37 @@
 """
 Example: Finding and fixing a bug using Cognitive Hydraulics.
 
-This example demonstrates:
-1. Reading a buggy file (sort.py)
-2. Analyzing the code structure
-3. Identifying the bug
-4. Suggesting a fix
+This example demonstrates the complete Cognitive Hydraulics decision cycle:
+1. Soar Phase: Read file → Execute code → Detect IndexError
+2. Impasse Detection: Multiple valid fix options create Tie impasse
+3. ACT-R Fallback: LLM evaluates options using utility equation (U = P×G - C)
+4. Fix Application: Apply selected fix
+5. Verification: Re-run code to confirm fix works
 """
 
 import asyncio
 from pathlib import Path
 from cognitive_hydraulics.engine import CognitiveAgent
-from cognitive_hydraulics.core.state import EditorState, Goal, FileContent
+from cognitive_hydraulics.core.state import EditorState, Goal
 from cognitive_hydraulics.safety import SafetyConfig
-from datetime import datetime
 
 
 async def main():
     print("=" * 70)
-    print("🐛 COGNITIVE HYDRAULICS - BUG FINDING EXAMPLE")
+    print("🐛 COGNITIVE HYDRAULICS - BUG FIX EXAMPLE")
+    print("=" * 70)
+    print("\nThis example demonstrates the full Cognitive Hydraulics flow:")
+    print("  Turn 1: Soar Phase - Read file → Execute code → Detect IndexError")
+    print("  Turn 2: Tie Impasse - Multiple fix options")
+    print("  Turn 2: ACT-R Fallback - Evaluating options with utility equation")
+    print("  Turn 3: Applying fix - Selected fix is applied")
+    print("  Turn 3: Verification - Code runs successfully")
     print("=" * 70)
 
     # Get the example directory
     example_dir = Path(__file__).parent
 
-    # Read the buggy file
-    sort_file = example_dir / "sort.py"
-    if not sort_file.exists():
-        print(f"❌ Error: {sort_file} not found")
-        return
-
-    print(f"\n📄 Reading buggy file: {sort_file}")
-    with open(sort_file, "r") as f:
-        file_content = f.read()
-
-    print(f"✓ File read ({len(file_content)} characters)")
-
-    # Create agent with dry-run mode
+    # Create agent (dry-run=False to allow actual execution and fixes)
     print("\n📦 Creating cognitive agent...")
     from cognitive_hydraulics.config import load_config
 
@@ -44,7 +39,7 @@ async def main():
     app_config = load_config()
 
     safety_config = SafetyConfig(
-        dry_run=True,  # Simulate without executing
+        dry_run=False,  # Allow actual execution and file modifications
         require_approval_for_destructive=False,  # Auto-approve for demo
     )
 
@@ -64,19 +59,17 @@ async def main():
     )
     print(f"✓ State created (file will be opened by agent)")
 
-    # Define goal to find and fix the bug
+    # Define goal to fix the bug
     print("\n🎯 Setting goal...")
     goal = Goal(
         description=(
-            "Find the bug in sort.py. The function sort_numbers() is supposed to "
-            "sort numbers in ascending order but produces incorrect results. "
-            "Analyze the code, identify the bug, and suggest a fix."
+            "Fix the bug in sort.py so that it runs without errors and sorts the list correctly."
         )
     )
-    print(f"✓ Goal: Find and fix bug in sort.py")
+    print(f"✓ Goal: {goal.description}")
 
     # Run agent
-    print("\n🚀 Running cognitive agent to find the bug...")
+    print("\n🚀 Running cognitive agent to fix the bug...")
     print("-" * 70)
 
     try:
@@ -90,24 +83,34 @@ async def main():
         print("-" * 70)
 
         if success:
-            print("\n✅ SUCCESS: Bug analysis complete!")
+            print("\n✅ SUCCESS: Bug fixed and verified!")
 
-            # Show what was found
+            # Show the fixed file
             if final_state.open_files.get("sort.py"):
-                print("\n📝 Final file state:")
+                print("\n📝 Fixed file content:")
                 print(final_state.open_files["sort.py"].content)
 
+            # Check if goal was achieved
+            if goal.status == "success":
+                print("\n🎯 Goal achieved: Code runs without errors and sorts correctly!")
+            else:
+                print(f"\n⚠️  Goal status: {goal.status}")
+
             if final_state.last_output:
-                print("\n💡 Analysis output:")
+                print("\n💡 Final output:")
                 print(final_state.last_output)
         else:
-            print("\n⚠️  Analysis incomplete (max cycles reached or impasse)")
+            print("\n⚠️  Fix incomplete (max cycles reached or impasse)")
 
         # Show statistics
         print(f"\n📊 Statistics:")
+        stats = agent.get_statistics()
+        for key, value in stats.items():
+            print(f"   - {key}: {value}")
+
         if agent.chunk_store:
-            stats = agent.chunk_store.get_stats()
-            print(f"   - Chunks learned: {stats['total_chunks']}")
+            chunk_stats = agent.chunk_store.get_stats()
+            print(f"   - Chunks learned: {chunk_stats['total_chunks']}")
 
     except Exception as e:
         print(f"\n❌ Error: {e}")
@@ -118,10 +121,7 @@ async def main():
     print("\n" + "=" * 70)
     print("✓ Example complete")
     print("=" * 70)
-    print("\n💡 TIP: The bug is in the bubble sort loop - it goes out of bounds!")
-    print("   The fix: Change 'range(0, n - i)' to 'range(0, n - i - 1)'")
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-

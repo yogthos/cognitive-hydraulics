@@ -162,6 +162,14 @@ class CognitiveAgent:
             # Run one decision cycle
             success = await self._decision_cycle(verbose_level)
 
+            # Check if goal was achieved during this cycle (e.g., after fix verification)
+            if self._goal_achieved():
+                if should_print(verbose_level, VerbosityLevel.BASIC):
+                    print(f"\n✅ Goal achieved in {cycles} cycles!")
+                    if should_print(verbose_level, VerbosityLevel.THINKING):
+                        print(f"\nTrace:\n{self.working_memory.get_trace()}")
+                return True, self.working_memory.current_state
+
             if not success:
                 # Stuck - goal failed
                 if should_print(verbose_level, VerbosityLevel.BASIC):
@@ -190,6 +198,10 @@ class CognitiveAgent:
         Returns:
             True if progress was made, False if stuck
         """
+        # Check if goal is already achieved before starting cycle
+        if self._goal_achieved():
+            return True
+
         current_state = self.working_memory.current_state
         current_goal = self.current_goal
 
@@ -531,13 +543,140 @@ class CognitiveAgent:
                 operator, result, new_state, self.current_goal
             )
 
+            # Check if running code successfully means goal is achieved
+            from cognitive_hydraulics.operators.exec_ops import OpRunCode
+            if isinstance(operator, OpRunCode):
+                # If code runs successfully (no errors) and goal mentions "fix" or "run without errors"
+                # AND tests pass (check stdout for "All tests passed"), then the goal is achieved
+                if (self.current_goal and
+                    ("fix" in self.current_goal.description.lower() or
+                     "run without errors" in self.current_goal.description.lower() or
+                     "runs without errors" in self.current_goal.description.lower() or
+                     "sorts correctly" in self.current_goal.description.lower()) and
+                    not result.error and
+                    len(new_state.error_log) == 0):  # No errors in error_log
+
+                    # Check if file has test functions - if so, tests must pass
+                    has_test_function = False
+                    if hasattr(operator, 'path') and operator.path in new_state.open_files:
+                        file_content = new_state.open_files[operator.path].content
+                        # Check for test functions (def test_ or if __name__ == "__main__")
+                        if "def test_" in file_content or 'if __name__ == "__main__"' in file_content:
+                            has_test_function = True
+
+                    output_text = result.output or ""
+                    stdout_text = ""
+                    if "STDOUT:" in output_text:
+                        stdout_text = output_text.split("STDOUT:")[1].split("STDERR:")[0] if "STDERR:" in output_text else output_text.split("STDOUT:")[1]
+
+                    # If tests exist, they must pass
+                    if has_test_function:
+                        if "All tests passed" in stdout_text:
+                            self.current_goal.status = "success"
+                            if should_print(verbose, VerbosityLevel.BASIC):
+                                print(f"   🎯 Goal achieved: Code runs without errors and tests pass!")
+                        else:
+                            # Tests exist but didn't pass or weren't run
+                            if should_print(verbose, VerbosityLevel.BASIC):
+                                print(f"   ⚠️  Tests did not pass or were not executed - goal not achieved")
+                            # Don't set goal to success
+                    else:
+                        # No test functions - just check that code runs without errors
+                        self.current_goal.status = "success"
+                        if should_print(verbose, VerbosityLevel.BASIC):
+                            print(f"   🎯 Goal achieved: Code runs without errors!")
+
+            # If a fix was applied, verify it by running the code
+            from cognitive_hydraulics.operators.file_ops import OpApplyFix
+            from cognitive_hydraulics.operators.exec_ops import OpRunCode
+
+            if isinstance(operator, OpApplyFix) and hasattr(operator, 'path') and operator.path.endswith('.py'):
+                if should_print(verbose, VerbosityLevel.BASIC):
+                    print(f"   🔍 Verifying fix by running {operator.path}...")
+
+                # Run the code to verify the fix
+                verify_op = OpRunCode(operator.path)
+                verify_result = await verify_op.execute(new_state)
+
+                # Check if verification actually passed
+                verification_passed = False
+
+                # First check: code must run without exceptions (success=True, no error, no errors in log)
+                # Note: AssertionError from test failures will make success=False and add to error_log
+                if verify_result.success and not verify_result.error and len(new_state.error_log) == 0:
+                    # Check if file has test functions - if so, tests must pass
+                    has_test_function = False
+                    if operator.path in new_state.open_files:
+                        file_content = new_state.open_files[operator.path].content
+                        if "def test_" in file_content or 'if __name__ == "__main__"' in file_content:
+                            has_test_function = True
+
+                    output_text = verify_result.output or ""
+                    stdout_text = ""
+                    if "STDOUT:" in output_text:
+                        stdout_text = output_text.split("STDOUT:")[1].split("STDERR:")[0] if "STDERR:" in output_text else output_text.split("STDOUT:")[1]
+
+                    if has_test_function:
+                        # Tests exist - they must pass
+                        if "All tests passed" in stdout_text:
+                            verification_passed = True
+                            if should_print(verbose, VerbosityLevel.BASIC):
+                                print(f"   ✅ Verification passed: Code runs without errors and tests pass")
+                        else:
+                            # Tests exist but didn't pass or weren't executed
+                            verification_passed = False
+                            if should_print(verbose, VerbosityLevel.BASIC):
+                                print(f"   ⚠️  Verification failed: Tests did not pass or were not executed")
+                                if stdout_text:
+                                    print(f"      Output: {stdout_text[:200]}")
+                                # Check if there's an error in the result
+                                if verify_result.error:
+                                    print(f"      Error: {verify_result.error}")
+                                # Check error_log for AssertionError
+                                if new_state.error_log:
+                                    print(f"      Error log: {new_state.error_log[-1]}")
+                    else:
+                        # No test functions - just check that code runs without errors
+                        verification_passed = True
+                        if should_print(verbose, VerbosityLevel.BASIC):
+                            print(f"   ✅ Verification passed: Code runs without errors (no tests to verify)")
+                else:
+                    # Code failed to run or had errors (including AssertionError from test failures)
+                    verification_passed = False
+                    if should_print(verbose, VerbosityLevel.BASIC):
+                        print(f"   ⚠️  Verification failed: Code execution failed or tests failed")
+                        if verify_result.error:
+                            print(f"      Error: {verify_result.error}")
+                        # Check error_log for AssertionError or other errors
+                        if new_state.error_log:
+                            last_error = new_state.error_log[-1]
+                            print(f"      Error log: {last_error}")
+                            # If AssertionError, tests failed - goal not achieved
+                            if "AssertionError" in last_error:
+                                if should_print(verbose, VerbosityLevel.BASIC):
+                                    print(f"      ❌ Tests failed - fix did not work correctly")
+
+                if verification_passed:
+                    # Update goal status to success if goal mentions fixing/running
+                    if self.current_goal and ("fix" in self.current_goal.description.lower() or
+                                               "run" in self.current_goal.description.lower() or
+                                               "sort" in self.current_goal.description.lower() or
+                                               "sorts correctly" in self.current_goal.description.lower()):
+                        self.current_goal.status = "success"
+                        if should_print(verbose, VerbosityLevel.BASIC):
+                            print(f"   🎯 Goal achieved: {self.current_goal.description[:50]}...")
+                else:
+                    if should_print(verbose, VerbosityLevel.BASIC):
+                        print(f"   ⚠️  Verification failed: {verify_result.error or 'Code still has errors or tests failed'}")
+
         else:
             if should_print(verbose, VerbosityLevel.BASIC):
                 print(f"   ✗ {result.error}")
 
-            # Record failure
+            # Record failure - but use new_state if available (it may contain error_log updates)
+            new_state = result.new_state or current_state
             self.working_memory.record_transition(
-                operator, result, current_state, self.current_goal
+                operator, result, new_state, self.current_goal
             )
 
     def _goal_achieved(self) -> bool:

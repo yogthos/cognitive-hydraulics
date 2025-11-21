@@ -1,45 +1,31 @@
-def merge(arr, l, m, r):
-    n1 = m - l + 1
-    n2 = r - m
+def bubbleSort(arr):
+    n = len(arr)
+    for i in range(n):
+        swapped = False
+        for j in range(0, n - i - 5):  # Bug: should be range(0, n - i - 1)
+            if arr[j] > arr[j + 1]:
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+                swapped = True
+        if not swapped:
+            break
+    return arr
 
-    L = [0] * n1
-    R = [0] * n2
 
-    for i in range(n1):
-        L[i] = arr[l + i]
-    for j in range(n2):
-        R[j] = arr[m + 1 + j]
+def test_bubbleSort():
+    """Test function to verify bubbleSort works correctly."""
+    test_cases = [
+        ([64, 34, 25, 12, 22, 11, 90], [11, 12, 22, 25, 34, 64, 90]),
+        ([5, 2, 8, 1, 9], [1, 2, 5, 8, 9]),
+        ([1], [1]),
+        ([], []),
+    ]
 
-    i = j = 0
-    k = l
+    for input_arr, expected in test_cases:
+        result = bubbleSort(input_arr.copy())
+        assert result == expected, f"Failed: {input_arr} -> {result}, expected {expected}"
+        print(f"✓ Test passed: {input_arr} -> {result}")
 
-    while i < n1 and j < n2:
-        if L[i] <= R[j]:
-            arr[k] = L[i]
-            i += 1
-        else:
-            arr[k] = R[j]
-            j += 1
-        k += 1
 
-    while i < n1:
-        arr[k] = L[i]
-        i += 1
-        k += 1
-    while j < n2:
-        arr[k] = R[j]
-        j += 1
-        k += 1
-
-def mergeSort(arr, l, l):
-    if l < r:
-        m = l + (r - l) // 2
-        mergeSort(arr, l, m)
-        mergeSort(arr, m + 1, r)
-        merge(arr, l, m, r)
-
-arr = [12, 11, 13, 5, 6, 7]
-print("Given array is:", arr)
-
-mergeSort(arr, 0, len(arr) - 1)
-print("Sorted array is:", arr)
+if __name__ == "__main__":
+    test_bubbleSort()
+    print("All tests passed!")

@@ -17,8 +17,8 @@ from cognitive_hydraulics.llm.schemas import (
 )
 from cognitive_hydraulics.llm.prompts import PromptTemplates
 from cognitive_hydraulics.utils.context_manager import ContextWindowManager
-from cognitive_hydraulics.operators.file_ops import OpReadFile, OpListDirectory
-from typing import TYPE_CHECKING, Optional
+from cognitive_hydraulics.operators.file_ops import OpReadFile, OpListDirectory, OpApplyFix
+from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from cognitive_hydraulics.config.settings import Config
@@ -201,6 +201,21 @@ class ACTRResolver:
             # Get recent error if available
             error = state.error_log[-1] if state.error_log else None
 
+            # Check if tests exist but didn't pass (even if no error in error_log)
+            if not error and state.last_output:
+                # Check if file has test functions and tests didn't pass
+                if state.open_files:
+                    for filename, file_content in state.open_files.items():
+                        if "def test_" in file_content.content or 'if __name__ == "__main__"' in file_content.content:
+                            output_lower = state.last_output.lower()
+                            has_tests_passed = "all tests passed" in output_lower
+                            has_exit_code_0 = "exit code: 0" in output_lower or "exit code:0" in output_lower
+
+                            # If code ran successfully but tests didn't pass, this is a test failure
+                            if has_exit_code_0 and not has_tests_passed:
+                                error = f"Tests failed: Code runs without exceptions but tests did not pass. The goal requires tests to pass."
+                                break
+
             # Create prompt
             prompt = PromptTemplates.generate_operators_prompt(
                 state_summary=state_summary,
@@ -276,6 +291,14 @@ class ACTRResolver:
         elif op_name == "list_dir":
             path = params.get("path", ".")
             return OpListDirectory(path)
+        elif op_name == "apply_fix":
+            # Fix operator requires path, fix_description, and fixed_content
+            if "path" in params and "fix_description" in params and "fixed_content" in params:
+                return OpApplyFix(
+                    path=params["path"],
+                    fix_description=params["fix_description"],
+                    fixed_content=params["fixed_content"],
+                )
         # Add more operator types as needed
         else:
             # Unknown operator type - skip it

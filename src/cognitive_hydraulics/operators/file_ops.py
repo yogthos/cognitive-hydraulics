@@ -156,3 +156,52 @@ class OpWriteFile(Operator):
                 error=f"Failed to write {self.path}: {str(e)}",
             )
 
+
+class OpApplyFix(Operator):
+    """Apply a code fix to a file (DESTRUCTIVE - requires approval)."""
+
+    def __init__(self, path: str, fix_description: str, fixed_content: str):
+        super().__init__(name=f"apply_fix({path}, {fix_description})", is_destructive=True)
+        self.path = path
+        self.fix_description = fix_description
+        self.fixed_content = fixed_content
+
+    def is_applicable(self, state: EditorState, goal: Goal) -> bool:
+        """Can only apply fixes to files that are open."""
+        return self.path in state.open_files
+
+    async def execute(self, state: EditorState) -> OperatorResult:
+        """Apply the fix by writing the fixed content."""
+        try:
+            full_path = Path(state.working_directory) / self.path
+
+            # Write fixed content
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(self.fixed_content)
+
+            # Update state with new content
+            new_state = state.model_copy(deep=True)
+            if self.path in new_state.open_files:
+                from datetime import datetime
+                new_state.open_files[self.path] = FileContent(
+                    path=self.path,
+                    content=self.fixed_content,
+                    language=new_state.open_files[self.path].language,
+                    tree_sitter_tree=None,  # Will be re-parsed if needed
+                    last_modified=datetime.now(),
+                )
+            new_state.last_output = f"Applied fix: {self.fix_description}"
+
+            return OperatorResult(
+                success=True,
+                new_state=new_state,
+                output=f"Applied fix to {self.path}: {self.fix_description}",
+            )
+
+        except Exception as e:
+            return OperatorResult(
+                success=False,
+                output="",
+                error=f"Failed to apply fix to {self.path}: {str(e)}",
+            )
+

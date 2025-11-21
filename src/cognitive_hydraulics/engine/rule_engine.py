@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from cognitive_hydraulics.core.state import EditorState, Goal
 from cognitive_hydraulics.core.operator import Operator
 from cognitive_hydraulics.operators.file_ops import OpReadFile, OpListDirectory
+from cognitive_hydraulics.operators.exec_ops import OpRunCode
 
 
 @dataclass
@@ -182,6 +183,55 @@ class RuleEngine:
             )
         )
 
+        # Rule 6: If goal mentions "run", "execute", "test", or "fix bug" and file is open, run it
+        # BUT: Don't run if there's already an error (let ACT-R generate fix operators instead)
+        # AND: Don't run if goal is already achieved
+        # AND: Don't run if we've already run it and tests exist but didn't pass (avoid infinite loop)
+        self.add_rule(
+            Rule(
+                name="run_code_for_fix_goal",
+                description="Execute code when goal mentions run/execute/test/fix",
+                condition=lambda s, g: any(
+                    word in g.description.lower()
+                    for word in ["run", "execute", "test", "fix bug", "fix the bug"]
+                )
+                and self._file_mentioned_and_open(s, g)
+                and self._is_python_file(self._extract_filename_from_goal(g))
+                and len(s.error_log) == 0  # Only run if no errors yet
+                and g.status != "success"  # Don't run if goal already achieved
+                and not self._tests_exist_but_failed(s, g),  # Don't run if tests failed (avoid loop)
+                operator_factory=lambda s, g: OpRunCode(
+                    self._extract_filename_from_goal(g)
+                ),
+                priority=7.0,  # High priority - executing code
+            )
+        )
+
+        # Rule 7: If file is open and goal mentions "fix" but no errors yet, run code to find errors
+        # BUT: Don't run if goal is already achieved
+        # AND: Don't run if we've already run it and tests exist but didn't pass (avoid infinite loop)
+        self.add_rule(
+            Rule(
+                name="run_code_to_find_errors",
+                description="Run code to discover errors when fixing bugs",
+                condition=lambda s, g: "fix" in g.description.lower()
+                and self._file_mentioned_and_open(s, g)
+                and len(s.error_log) == 0
+                and self._is_python_file(self._extract_filename_from_goal(g))
+                and g.status != "success"  # Don't run if goal already achieved
+                and not self._tests_exist_but_failed(s, g),  # Don't run if tests failed (avoid loop)
+                operator_factory=lambda s, g: OpRunCode(
+                    self._extract_filename_from_goal(g)
+                ),
+                priority=6.5,
+            )
+        )
+
+        # Rule 8: If code runs successfully but tests exist and didn't pass, we need to fix the code
+        # This creates an impasse that will trigger ACT-R to generate a fix
+        # Actually, this is handled by the goal achievement check - if tests don't pass, goal isn't achieved
+        # So we don't need a separate rule for this
+
     # Helper methods for rule conditions
 
     def _file_mentioned_but_not_open(self, state: EditorState, goal: Goal) -> bool:
@@ -229,6 +279,59 @@ class RuleEngine:
         file_pattern = r"[\w\-\_]+\.\w+"
         matches = re.findall(file_pattern, last_error)
         return matches[0] if matches else "unknown.txt"
+
+    def _file_mentioned_and_open(self, state: EditorState, goal: Goal) -> bool:
+        """Check if goal mentions a file that is currently open."""
+        import re
+
+        file_pattern = r"[\w\-\_]+\.\w+"
+        matches = re.findall(file_pattern, goal.description)
+
+        for filename in matches:
+            if filename in state.open_files:
+                return True
+        return False
+
+    def _is_python_file(self, filename: str) -> bool:
+        """Check if filename is a Python file."""
+        return filename.endswith(".py")
+
+    def has_indexerror(self, state: EditorState) -> bool:
+        """Check if error_log contains an IndexError."""
+        if not state.error_log:
+            return False
+        return any("IndexError" in error for error in state.error_log)
+
+    def _tests_exist_but_failed(self, state: EditorState, goal: Goal) -> bool:
+        """Check if test functions exist but tests didn't pass (to avoid infinite loops)."""
+        if not state.open_files:
+            return False
+
+        filename = self._extract_filename_from_goal(goal)
+        if filename not in state.open_files:
+            return False
+
+        file_content = state.open_files[filename].content
+        has_test = "def test_" in file_content
+
+        if not has_test:
+            return False
+
+        # Check if we've run the code and it succeeded but tests didn't pass
+        # This is indicated by: last_output exists, no errors in error_log, but no "All tests passed"
+        if state.last_output:
+            output_lower = state.last_output.lower()
+            has_tests_passed = "all tests passed" in output_lower
+            has_exit_code_0 = "exit code: 0" in output_lower or "exit code:0" in output_lower or "exit code: 0" in output_lower
+
+            # If code ran successfully (exit code 0) but tests didn't pass, we've already tried
+            # Also check if we've run it multiple times (check working memory history)
+            if has_exit_code_0 and not has_tests_passed and len(state.error_log) == 0:
+                # Count how many times we've run this code successfully
+                # If it's more than once, we're in a loop
+                return True  # Conservative: if tests exist but didn't pass, don't run again
+
+        return False
 
     def __repr__(self) -> str:
         return f"RuleEngine({len(self.rules)} rules)"
