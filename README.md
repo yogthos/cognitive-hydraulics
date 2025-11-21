@@ -51,18 +51,66 @@ Current AI agents get stuck in "loops of doom" because they use LLMs for *everyt
 
 ## 🚀 Quick Start
 
-### Installation
+### Prerequisites
+
+- **Python 3.10+** (Python 3.14 recommended)
+- **Ollama** for local LLM
 
 ```bash
-# Prerequisites: Python 3.10+ and Ollama
+# Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen2.5:8b
 
-# Install package
+# Pull the model (8B parameter model, good balance of speed/quality)
+ollama pull qwen2.5:8b
+```
+
+### Installation
+
+#### 1. Clone the Repository
+
+```bash
 git clone https://github.com/yourusername/cognitive-hydraulics.git
 cd cognitive-hydraulics
-pip install -e .
 ```
+
+#### 2. Create and Activate Virtual Environment
+
+**On macOS/Linux:**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+**On Windows:**
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+#### 3. Install Dependencies
+
+```bash
+# Upgrade pip
+pip install --upgrade pip
+
+# Install the package in editable mode
+pip install -e .
+
+# Verify installation
+python -m cognitive_hydraulics --version
+```
+
+#### 4. Verify Setup
+
+```bash
+# Check that Ollama is running
+ollama list
+
+# Show system info
+python -m cognitive_hydraulics info
+```
+
+> **💡 Note:** To deactivate the virtual environment later, simply run `deactivate`
 
 ### Basic Usage
 
@@ -118,50 +166,50 @@ asyncio.run(main())
 ```mermaid
 flowchart TD
     Start([Goal Defined]) --> Propose[🧠 PROPOSE Phase]
-    
+
     Propose --> CheckMemory{Check Learned<br/>Chunks?}
     CheckMemory -->|Found Match| ExecuteChunk[⚡ Execute from Memory<br/>10x faster!]
     CheckMemory -->|No Match| RunRules[📋 Run Production Rules]
-    
+
     RunRules --> Decide[⚖️ DECIDE Phase]
     Decide --> DetectImpasse{Impasse?}
-    
+
     DetectImpasse -->|No Impasse| Apply[✅ APPLY Phase]
     DetectImpasse -->|TIE/NO_CHANGE| Monitor[🧠 Meta-Cognitive Monitor]
-    
+
     Monitor --> CalcPressure[Calculate Pressure:<br/>• Depth<br/>• Time<br/>• Loops<br/>• Ambiguity]
     CalcPressure --> CheckPressure{Pressure ≥ 0.7?}
-    
+
     CheckPressure -->|Low Pressure| CreateSubgoal[Create Sub-Goal<br/>Stay in Soar]
     CheckPressure -->|High Pressure| ACTR[🚨 ACT-R Fallback]
-    
+
     ACTR --> LLM[🤖 Query LLM for<br/>Utility Estimates]
     LLM --> CalcUtility[Calculate U = P×G - C + Noise]
     CalcUtility --> SelectBest[Select Highest Utility]
-    
+
     SelectBest --> SafetyCheck{Safety Check}
     SafetyCheck -->|Destructive/Low U| Approval[🚨 Request Human Approval]
     SafetyCheck -->|Safe| Execute[▶ Execute Operator]
     Approval -->|Approved| Execute
     Approval -->|Rejected| Fail[❌ Operation Rejected]
-    
+
     Execute --> Success{Success?}
     Success -->|Yes| Learn[💾 Create Chunk<br/>Learn from Success]
     Success -->|No| Record[📝 Record Failure]
-    
+
     Learn --> UpdateMemory[Update ChromaDB]
     UpdateMemory --> NextCycle{More Work?}
     Record --> NextCycle
-    
+
     Apply --> UpdateState[Update Working Memory]
     UpdateState --> NextCycle
     ExecuteChunk --> NextCycle
     CreateSubgoal --> Propose
-    
+
     NextCycle -->|Yes| Propose
     NextCycle -->|No| End([🎯 Goal Complete])
     Fail --> End
-    
+
     style Start fill:#90EE90
     style End fill:#FFB6C1
     style ACTR fill:#FFD700
@@ -175,60 +223,60 @@ flowchart TD
 ```mermaid
 stateDiagram-v2
     [*] --> Proposing: Start Decision Cycle
-    
+
     Proposing --> CheckingMemory: Check Chunks
     CheckingMemory --> ExecutingChunk: Chunk Found (Success Rate > 70%)
     CheckingMemory --> ApplyingRules: No Matching Chunk
-    
+
     ApplyingRules --> Deciding: Rules Applied
-    
+
     Deciding --> DetectingImpasse: Evaluate Operators
-    
+
     DetectingImpasse --> Applying: Single Operator (No Impasse)
     DetectingImpasse --> MonitoringPressure: Impasse Detected (TIE/NO_CHANGE)
-    
+
     MonitoringPressure --> CalculatingPressure: Check Cognitive Load
-    
+
     CalculatingPressure --> CreatingSubgoal: Pressure < 0.7 (CALM/ELEVATED)
     CalculatingPressure --> ACTRFallback: Pressure ≥ 0.7 (HIGH/CRITICAL)
-    
+
     CreatingSubgoal --> Proposing: Sub-goal Created
-    
+
     ACTRFallback --> QueryingLLM: System 1 Engaged
     QueryingLLM --> EstimatingUtility: Get P (Probability) & C (Cost)
     EstimatingUtility --> SelectingOperator: Calculate U = P×G - C
-    
+
     SelectingOperator --> CheckingSafety: Operator Selected
-    
+
     CheckingSafety --> RequestingApproval: Destructive OR Low Utility
     CheckingSafety --> Executing: Safe Operation
-    
+
     RequestingApproval --> Executing: Approved
     RequestingApproval --> [*]: Rejected
-    
+
     Executing --> CheckingSuccess: Operator Executed
-    
+
     CheckingSuccess --> Learning: Success
     CheckingSuccess --> RecordingFailure: Failure
-    
+
     Learning --> StoringChunk: Create Chunk
     StoringChunk --> UpdatingMemory: Store in ChromaDB
-    
+
     RecordingFailure --> UpdatingMemory: Record Transition
-    
+
     UpdatingMemory --> CheckingGoal: Update Working Memory
     Applying --> UpdatingMemory: Apply Success
     ExecutingChunk --> UpdatingMemory: Chunk Executed
-    
+
     CheckingGoal --> [*]: Goal Complete
     CheckingGoal --> Proposing: Continue
-    
+
     note right of CheckingMemory
         💡 Memory Retrieval
         Semantic similarity search
         Activation-based selection
     end note
-    
+
     note right of MonitoringPressure
         🧠 Cognitive Pressure
         • Sub-goal depth (0-1)
@@ -236,13 +284,13 @@ stateDiagram-v2
         • Loop detection (0-1)
         • Ambiguity (0-1)
     end note
-    
+
     note right of ACTRFallback
         🚨 System 2 → System 1
         Slow → Fast
         Logic → Heuristic
     end note
-    
+
     note right of Learning
         💾 Chunking
         Converts expensive LLM
@@ -259,32 +307,32 @@ graph TB
         WM[Working Memory<br/>State History]
         ID[Impasse Detector<br/>NO_CHANGE, TIE, CONFLICT]
     end
-    
+
     subgraph "Meta-Cognitive Layer"
         MM[Meta Monitor<br/>Pressure Calculator]
     end
-    
+
     subgraph "ACT-R (System 1 - Heuristic)"
         AR[ACT-R Resolver<br/>Utility Calculator]
         LC[LLM Client<br/>Ollama + JSON Schema]
         PT[Prompt Templates<br/>Context-Aware]
     end
-    
+
     subgraph "Learning System"
         CS[Chunk Store<br/>ChromaDB]
         CH[Chunk Model<br/>Activation + Success Rate]
     end
-    
+
     subgraph "Safety Layer"
         SM[Safety Middleware<br/>Approval + Dry-run]
         HA[Human Approval<br/>Interactive Prompts]
     end
-    
+
     subgraph "Utilities"
         TS[Tree-sitter<br/>AST Parsing]
         CM[Context Manager<br/>State Compression]
     end
-    
+
     RE --> WM
     WM --> ID
     ID --> MM
@@ -298,7 +346,7 @@ graph TB
     CS --> CH
     CH -->|Retrieval| RE
     TS --> CM
-    
+
     style RE fill:#90EE90
     style AR fill:#FFD700
     style MM fill:#87CEEB
