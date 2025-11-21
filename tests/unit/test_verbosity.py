@@ -78,7 +78,7 @@ class TestFormatThinking:
     def test_format_thinking_basic(self):
         """Test basic thinking output formatting."""
         result = format_thinking("Test Section", "Line 1\nLine 2")
-        
+
         assert "THINKING: Test Section" in result
         assert "→ Line 1" in result
         assert "→ Line 2" in result
@@ -87,7 +87,7 @@ class TestFormatThinking:
         """Test formatting with multiple lines."""
         content = "First line\nSecond line\nThird line"
         result = format_thinking("Analysis", content)
-        
+
         lines = result.split("\n")
         assert lines[0] == "THINKING: Analysis"
         assert "→ First line" in lines
@@ -98,7 +98,7 @@ class TestFormatThinking:
         """Test that empty lines are ignored."""
         content = "Line 1\n\nLine 2\n  \nLine 3"
         result = format_thinking("Test", content)
-        
+
         # Should not have empty arrow lines
         assert "→" in result
         assert result.count("→") == 3  # Only 3 non-empty lines
@@ -107,7 +107,7 @@ class TestFormatThinking:
         """Test that whitespace is stripped from lines."""
         content = "  Line 1  \n  Line 2  "
         result = format_thinking("Test", content)
-        
+
         assert "→ Line 1" in result
         assert "→ Line 2" in result
         assert "  Line 1  " not in result  # Whitespace should be stripped
