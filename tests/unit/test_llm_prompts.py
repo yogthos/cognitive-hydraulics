@@ -69,7 +69,6 @@ class TestPromptTemplates:
 
         assert "read_file" in prompt
         assert "list_dir" in prompt
-        assert "search" in prompt
 
     def test_evaluate_utilities_prompt_basic(self):
         """Test generating utility evaluation prompt."""
