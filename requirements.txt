@@ -1,0 +1,33 @@
+# Core Dependencies
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+
+# LLM Integration
+ollama>=0.4.0
+
+# Memory & Storage (using client-only version to avoid onnxruntime dependency)
+chromadb-client>=0.4.24
+
+# Code Analysis - Tree-sitter
+tree-sitter>=0.21.0
+tree-sitter-python>=0.21.0
+tree-sitter-javascript>=0.21.0
+tree-sitter-typescript>=0.21.0
+tree-sitter-rust>=0.21.0
+tree-sitter-go>=0.21.0
+
+# CLI & UI
+rich>=13.7.0
+typer>=0.12.0
+
+# Utilities
+aiofiles>=23.2.1
+
+# Development & Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+black>=24.0.0
+mypy>=1.8.0
+ruff>=0.1.0
+
