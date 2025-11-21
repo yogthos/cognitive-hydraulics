@@ -109,8 +109,12 @@ async def main():
             print(f"   - {key}: {value}")
 
         if agent.memory:
-            chunk_stats = agent.chunk_store.get_stats()
-            print(f"   - Chunks learned: {chunk_stats['total_chunks']}")
+            try:
+                chunk_stats = agent.memory.get_stats()
+                print(f"   - Chunks learned: {chunk_stats.get('total_chunks', 0)}")
+                print(f"   - Contexts stored: {chunk_stats.get('total_contexts', 0)}")
+            except Exception as e:
+                print(f"   - Memory stats unavailable: {e}")
 
     except Exception as e:
         print(f"\n❌ Error: {e}")
