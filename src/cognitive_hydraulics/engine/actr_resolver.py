@@ -73,7 +73,7 @@ class ACTRResolver:
         operators: List[Operator],
         state: EditorState,
         goal: Goal,
-        verbose: bool = True,
+        verbose: Union[bool, int] = 2,
     ) -> Optional[Tuple[Operator, float]]:
         """
         Use LLM to estimate utilities and select best operator.
@@ -82,11 +82,12 @@ class ACTRResolver:
             operators: List of operators to choose from
             state: Current state
             goal: Current goal
-            verbose: Print reasoning
+            verbose: Verbosity level (0-3) or bool for backward compat
 
         Returns:
             (selected_operator, utility) or None if LLM fails
         """
+        verbose_level = normalize_verbose(verbose)
         if not operators:
             return None
 
@@ -103,8 +104,17 @@ class ACTRResolver:
         )
 
         # Query LLM
-        if verbose:
+        if should_print(verbose_level, VerbosityLevel.BASIC):
             print(f"   🤖 Querying LLM for utility estimates...")
+
+        if should_print(verbose_level, VerbosityLevel.THINKING):
+            thinking_lines = [
+                f"Calculating utilities for {len(operators)} operators",
+                f"Formula: U = P × G - C + Noise",
+                f"Goal value (G): {self.G}",
+                f"Noise stddev: {self.noise_stddev}",
+            ]
+            print(format_thinking("Calculating Utilities", "\n".join(thinking_lines)))
 
         try:
             evaluation: Optional[UtilityEvaluation] = await self.llm.structured_query(
@@ -112,11 +122,11 @@ class ACTRResolver:
                 response_schema=UtilityEvaluation,
                 system_prompt=PromptTemplates.SYSTEM_PROMPT,
                 temperature=0.3,
-                verbose=verbose,
+                verbose=bool(verbose_level >= VerbosityLevel.BASIC),
             )
 
             if not evaluation:
-                if verbose:
+                if should_print(verbose_level, VerbosityLevel.BASIC):
                     print(f"   ✗ LLM query failed")
                 return None
 
@@ -131,7 +141,7 @@ class ACTRResolver:
 
                 utilities.append((op, U, est))
 
-                if verbose:
+                if should_print(verbose_level, VerbosityLevel.BASIC):
                     print(
                         f"   {op.name}: U={U:.2f} "
                         f"(P={P:.2f}, C={C:.1f}, noise={noise:+.2f})"
@@ -141,14 +151,26 @@ class ACTRResolver:
             # Select highest utility
             best_op, best_U, best_est = max(utilities, key=lambda x: x[1])
 
-            if verbose:
+            if should_print(verbose_level, VerbosityLevel.THINKING):
+                # Find the noise value for the best operator
+                best_idx = utilities.index((best_op, best_U, best_est))
+                noise_val = best_U - (best_est.probability_of_success * self.G - best_est.estimated_cost)
+                thinking_lines = [
+                    f"Selected: {best_op.name}",
+                    f"Utility: {best_U:.2f}",
+                    f"Breakdown: P={best_est.probability_of_success:.2f} × {self.G} - {best_est.estimated_cost:.1f} + {noise_val:.2f}",
+                    f"Reasoning: {best_est.reasoning}",
+                ]
+                print(format_thinking("Utility Calculation Result", "\n".join(thinking_lines)))
+
+            if should_print(verbose_level, VerbosityLevel.BASIC):
                 print(f"   ✓ Selected: {best_op.name} (U={best_U:.2f})")
                 print(f"   Recommendation: {evaluation.recommendation}")
 
             return (best_op, best_U)
 
         except Exception as e:
-            if verbose:
+            if should_print(verbose_level, VerbosityLevel.BASIC):
                 print(f"   ✗ Error during LLM query: {e}")
             return None
 
@@ -156,7 +178,7 @@ class ACTRResolver:
         self,
         state: EditorState,
         goal: Goal,
-        verbose: bool = True,
+        verbose: Union[bool, int] = 2,
     ) -> Optional[List[Operator]]:
         """
         Generate operators from scratch when no rules match (NO_CHANGE impasse).
@@ -185,15 +207,25 @@ class ACTRResolver:
                 error=error,
             )
 
-            if verbose:
+            verbose_level = normalize_verbose(verbose)
+
+            if should_print(verbose_level, VerbosityLevel.BASIC):
                 print(f"   🤖 Querying LLM for operator suggestions...")
+
+            if should_print(verbose_level, VerbosityLevel.THINKING):
+                thinking_lines = [
+                    f"State: {state_summary.get('working_directory', 'unknown')}",
+                    f"Goal: {goal.description[:60]}",
+                    f"Reasoning: No symbolic rules matched, using LLM to generate operators",
+                ]
+                print(format_thinking("Generating Operators from LLM", "\n".join(thinking_lines)))
 
             # Query LLM for operator suggestions
             response = await self.llm.structured_query(
                 prompt=prompt,
                 response_schema=OperatorProposal,
                 system_prompt=PromptTemplates.SYSTEM_PROMPT,
-                verbose=verbose,
+                verbose=bool(verbose_level >= VerbosityLevel.BASIC),
             )
 
             if not response:
@@ -205,13 +237,20 @@ class ACTRResolver:
                 op = self._create_operator_from_suggestion(suggestion)
                 if op:
                     operators.append(op)
-                    if verbose:
+                    if should_print(verbose_level, VerbosityLevel.BASIC):
                         print(f"   💡 Suggested: {op.name} - {suggestion.reasoning}")
+                    if should_print(verbose_level, VerbosityLevel.THINKING):
+                        thinking_lines = [
+                            f"Operator: {op.name}",
+                            f"Reasoning: {suggestion.reasoning}",
+                        ]
+                        print(format_thinking(f"LLM Suggested Operator", "\n".join(thinking_lines)))
 
             return operators if operators else None
 
         except Exception as e:
-            if verbose:
+            verbose_level = normalize_verbose(verbose)
+            if should_print(verbose_level, VerbosityLevel.BASIC):
                 print(f"   ✗ Error generating operators: {e}")
             return None
 

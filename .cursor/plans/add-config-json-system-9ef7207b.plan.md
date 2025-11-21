@@ -1,120 +1,152 @@
-<!-- 9ef7207b-3260-4f78-9c4a-f89ba569a606 7e74f67a-d19f-484a-90b3-7a8e7d7e9807 -->
-# Fix LLM Client Timeout and Hanging Issues
+<!-- 9ef7207b-3260-4f78-9c4a-f89ba569a606 9300d919-4dff-4aa9-9de3-138290cc7ed3 -->
+# Add Thinking Output with Configurable Verbosity Levels
 
-## Problem
+## Overview
 
-The system hangs indefinitely when:
+Enhance the system to print high-level reasoning at each step, showing why operators are chosen, why the system switches between Soar/ACT-R modes, and meta-cognitive reasoning. Add configurable verbosity levels (0=silent, 1=basic, 2=thinking, 3=debug) with level 2 as default.
 
-1. Ollama server is not running
-2. The LLM model is not available
-3. LLM takes too long to respond
-4. Connection attempts block forever
+## Implementation Plan
 
-## Solution Strategy
+### 1. Add Verbosity Level System
 
-### 1. Add Proper Timeout Handling to LLM Client
+**File: `src/cognitive_hydraulics/core/verbosity.py` (new)**
 
-**File: `src/cognitive_hydraulics/llm/client.py`**
+- Create `VerbosityLevel` enum with values: SILENT=0, BASIC=1, THINKING=2, DEBUG=3
+- Create helper functions:
+  - `should_print(level: int, min_level: int) -> bool`
+  - `format_thinking(header: str, content: str, level: int) -> str`
 
-- Add connection timeout (2 seconds) before attempting queries
-- Add query timeout (60 seconds) for LLM responses
-- Use `asyncio.wait_for()` with timeouts on all blocking calls
-- Return `None` gracefully on timeouts instead of hanging
-- Add verbose error messages to help debugging
-
-### 2. Update Cognitive Agent to Handle LLM Failures
+### 2. Update CognitiveAgent to Support Verbosity Levels
 
 **File: `src/cognitive_hydraulics/engine/cognitive_agent.py`**
 
-- When ACT-R resolver returns `None` (LLM failed), fall back to:
-  - Breaking ties by selecting first operator
-  - Creating sub-goals for NO_CHANGE impasses
-  - Failing gracefully with clear error message
-- Add max impasse count to prevent infinite loops
-- Track consecutive failures and abort if stuck
+- Change `verbose: bool = True` to `verbose: int = 2` (default to thinking mode)
+- Update `solve()` method:
+  - Add thinking output for goal analysis
+  - Show initial state assessment
+- Update `_decision_cycle()` method:
+  - Add "THINKING: Analyzing current state..." section
+  - Show why rules matched/didn't match (level 2+)
+  - Add "THINKING: Evaluating operator proposals..." section
+  - Show reasoning for operator selection
+- Update `_handle_impasse()` method:
+  - Add "THINKING: Impasse detected..." section
+  - Show why impasse occurred
+  - Add "THINKING: Checking cognitive pressure..." section
+  - Show pressure calculation and why fallback is/isn't triggered
+  - Add "THINKING: Switching to ACT-R mode..." with reasoning
+- Update `_apply_operator()` method:
+  - Add "THINKING: Applying operator..." with expected outcome reasoning
 
-### 3. Improve ACTRResolver Error Handling
+### 3. Update RuleEngine to Show Rule Matching Reasoning
+
+**File: `src/cognitive_hydraulics/engine/rule_engine.py`**
+
+- Add `propose_operators_with_reasoning()` method that returns (operator, priority, reason) tuples
+- Show which rules fired and why (at verbosity level 2+)
+- Show why other rules didn't match (at verbosity level 3)
+
+### 4. Update ACTRResolver to Show Utility Reasoning
 
 **File: `src/cognitive_hydraulics/engine/actr_resolver.py`**
 
-- Check if LLM response is `None` before processing
-- Return `None` immediately if connection fails
-- Add fallback behavior when LLM is unavailable
-- Log clear errors about why LLM failed
+- Update `resolve()` method:
+  - Add "THINKING: Calculating utilities..." section
+  - Show utility calculation breakdown: U = P×G - C + Noise
+  - Show why each operator was rated as it was
+- Update `generate_operators()` method:
+  - Add "THINKING: Generating operators from LLM..." section
+  - Show reasoning for why LLM suggested each operator
 
-### 4. Add CLI Warning for Missing Ollama
+### 5. Update MetaCognitiveMonitor to Show Pressure Reasoning
+
+**File: `src/cognitive_hydraulics/engine/meta_monitor.py`**
+
+- Add `get_thinking_summary(metrics: CognitiveMetrics) -> str` method
+- Show breakdown of pressure calculation:
+  - Depth component
+  - Time component
+  - Ambiguity component
+  - Final pressure value and interpretation
+
+### 6. Update CLI to Support Verbosity Levels
 
 **File: `src/cognitive_hydraulics/cli/main.py`**
 
-- Check Ollama connection before starting solve
-- Show warning if Ollama is not running
-- Suggest starting Ollama or using --dry-run mode
-- Continue with degraded functionality (no ACT-R)
+- Change `verbose: bool` to `verbose: int = 2` in `solve()` command
+- Update help text to explain levels:
+  - `0` = Silent (errors only)
+  - `1` = Basic (current minimal output)
+  - `2` = Thinking (default, shows reasoning)
+  - `3` = Debug (detailed trace)
+- Add `--quiet` flag that sets verbose=0
+- Keep `--verbose` flag but make it set verbose=2 (or increment if already set)
 
-### 5. Update Examples to Handle Offline Mode
+### 7. Update Examples to Use New Verbosity
 
-**Files: `examples/bug_fix_example.py`, `examples/basic_example.py`**
+**Files: `examples/basic_example.py`, `examples/bug_fix_example.py`**
 
-- Add try/except around agent execution
-- Show helpful error if Ollama is not available
-- Suggest checking Ollama status
-- Gracefully exit with error code
+- Update to use `verbose=2` (thinking mode) by default
+- Show examples of different verbosity levels in comments
 
-### 6. Add Integration Test for Offline Mode
+### 8. Add Thinking Output Format
 
-**File: `tests/integration/test_offline_mode.py`**
+**Format Structure:**
 
-- Test that agent handles missing Ollama gracefully
-- Test that system doesn't hang on timeout
-- Test that appropriate errors are logged
-- Verify fallback behavior works
-
-## Implementation Details
-
-### Connection Check with Timeout
-
-```python
-try:
-    await asyncio.wait_for(
-        asyncio.to_thread(client.list), 
-        timeout=2.0
-    )
-except (asyncio.TimeoutError, Exception):
-    return None  # Ollama not available
+```
+THINKING: [Section Name]
+  → [Reasoning line 1]
+  → [Reasoning line 2]
+  → [Decision/Conclusion]
 ```
 
-### Query with Timeout
+**Example Output:**
 
-```python
-try:
-    response = await asyncio.wait_for(
-        asyncio.to_thread(client.chat, ...),
-        timeout=60.0
-    )
-except asyncio.TimeoutError:
-    return None  # Query timed out
+```
+THINKING: Analyzing Current State
+  → Working directory: /project
+  → Open files: main.py (200 lines)
+  → Recent error: None
+  → Goal: Fix bug in main.py
+
+THINKING: Evaluating Operator Proposals
+  → Rule "read_file" matched: file mentioned in goal
+  → Rule "analyze_code" matched: file already open
+  → Selected: analyze_code (priority: 7.0)
+  → Reasoning: File is open, can analyze immediately
+
+THINKING: Checking Cognitive Pressure
+  → Depth: 0/3 (CALM)
+  → Time in state: 50ms (CALM)
+  → Ambiguity: 0.2 (LOW)
+  → Pressure: 0.15 (CALM - continuing with Soar)
 ```
 
-### Agent Fallback Logic
+## Files to Modify
 
-```python
-if result is None:  # LLM failed
-    if impasse.type == ImpasseType.TIE:
-        # Fall back to first operator
-        operator = impasse.operators[0]
-        await self._apply_operator(operator, verbose)
-        return True
-    else:
-        # Cannot proceed without LLM
-        return False
-```
+1. `src/cognitive_hydraulics/core/verbosity.py` (new)
+2. `src/cognitive_hydraulics/engine/cognitive_agent.py`
+3. `src/cognitive_hydraulics/engine/rule_engine.py`
+4. `src/cognitive_hydraulics/engine/actr_resolver.py`
+5. `src/cognitive_hydraulics/engine/meta_monitor.py`
+6. `src/cognitive_hydraulics/cli/main.py`
+7. `examples/basic_example.py`
+8. `examples/bug_fix_example.py`
 
-## Expected Outcome
+## Testing
 
-After implementation:
+- Test each verbosity level (0-3) to ensure correct output
+- Verify default is level 2 (thinking mode)
+- Ensure backward compatibility (bool verbose still works, maps to int)
+- Test that thinking output doesn't break existing functionality
 
-- System never hangs indefinitely
-- Clear error messages when Ollama is unavailable
-- Graceful degradation (symbolic reasoning still works)
-- Examples exit cleanly with helpful error messages
-- Tests verify timeout behavior
+### To-dos
+
+- [ ] Create verbosity level system (VerbosityLevel enum and helpers)
+- [ ] Update CognitiveAgent to use verbosity levels and add thinking output
+- [ ] Update RuleEngine to show rule matching reasoning
+- [ ] Update ACTRResolver to show utility calculation reasoning
+- [ ] Update MetaCognitiveMonitor to show pressure calculation breakdown
+- [ ] Update CLI to support verbosity levels with --verbose flag
+- [ ] Update examples to use new verbosity system
+- [ ] Test all verbosity levels and verify backward compatibility

@@ -180,6 +180,49 @@ class MetaCognitiveMonitor:
             f"Ambiguity: {metrics.operator_ambiguity:.2f}"
         )
 
+    def get_thinking_summary(self, metrics: CognitiveMetrics) -> str:
+        """
+        Get detailed thinking breakdown of pressure calculation.
+
+        Args:
+            metrics: Current cognitive metrics
+
+        Returns:
+            Multi-line string with pressure breakdown
+        """
+        pressure = self.calculate_pressure(metrics)
+
+        # Calculate individual components
+        depth_pressure = min(metrics.goal_depth / self.depth_threshold, 1.0)
+        time_pressure = min(metrics.time_in_state_ms / self.time_threshold_ms, 1.0)
+        impasse_pressure = min(metrics.impasse_count / 3.0, 1.0)
+        ambiguity_pressure = metrics.operator_ambiguity
+
+        # Determine status
+        if pressure < 0.3:
+            status = "CALM"
+            decision = "continuing with Soar"
+        elif pressure < 0.5:
+            status = "ELEVATED"
+            decision = "continuing with Soar"
+        elif pressure < 0.7:
+            status = "HIGH"
+            decision = "continuing with Soar (approaching threshold)"
+        else:
+            status = "CRITICAL"
+            decision = "triggering ACT-R fallback"
+
+        lines = [
+            f"Depth: {metrics.goal_depth}/{self.depth_threshold} ({depth_pressure:.2f})",
+            f"Time in state: {metrics.time_in_state_ms:.0f}ms ({time_pressure:.2f})",
+            f"Impasses: {metrics.impasse_count} ({impasse_pressure:.2f})",
+            f"Ambiguity: {metrics.operator_ambiguity:.2f}",
+            f"Pressure: {pressure:.2f} ({status})",
+            f"Decision: {decision}",
+        ]
+
+        return "\n".join(lines)
+
     def __repr__(self) -> str:
         return (
             f"MetaCognitiveMonitor(depth_threshold={self.depth_threshold}, "

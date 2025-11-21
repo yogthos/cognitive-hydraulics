@@ -65,10 +65,11 @@ async def main():
     print("-" * 70)
 
     try:
+        # Verbosity levels: 0=silent, 1=basic, 2=thinking (default), 3=debug
         success, final_state = await agent.solve(
             goal=goal,
             initial_state=initial_state,
-            verbose=True,
+            verbose=2,  # Thinking mode - shows reasoning
         )
 
         print("-" * 70)

@@ -82,8 +82,11 @@ def solve(
     max_cycles: Optional[int] = typer.Option(
         None, "--max-cycles", help="Maximum decision cycles (overrides config)"
     ),
-    verbose: bool = typer.Option(
-        True, "--verbose/--quiet", "-v/-q", help="Verbose output"
+    verbose: int = typer.Option(
+        2, "--verbose", "-v", help="Verbosity level: 0=silent, 1=basic, 2=thinking (default), 3=debug"
+    ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Quiet mode (equivalent to --verbose=0)"
     ),
     config_path: Optional[Path] = typer.Option(
         None, "--config", help="Path to custom config file"
@@ -114,6 +117,10 @@ def solve(
         border_style="green",
     ))
 
+    # Handle verbosity: quiet overrides verbose
+    from cognitive_hydraulics.core.verbosity import normalize_verbose
+    verbose_level = 0 if quiet else normalize_verbose(verbose)
+
     # Create agent (CLI args override config)
     safety_config = SafetyConfig(dry_run=dry_run)
     agent = CognitiveAgent(
@@ -134,7 +141,7 @@ def solve(
             success, final_state = await agent.solve(
                 goal=goal_obj,
                 initial_state=initial_state,
-                verbose=verbose,
+                verbose=verbose_level,
             )
 
             if success:

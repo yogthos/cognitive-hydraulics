@@ -76,6 +76,31 @@ class RuleEngine:
         proposals.sort(key=lambda x: x[1], reverse=True)
         return proposals
 
+    def propose_operators_with_reasoning(
+        self, state: EditorState, goal: Goal
+    ) -> List[tuple[Operator, float, str]]:
+        """
+        Match all rules against current state/goal with reasoning.
+
+        Returns:
+            List of (operator, priority, reason) tuples sorted by priority
+        """
+        proposals = []
+
+        for rule in self.rules:
+            if rule.matches(state, goal):
+                try:
+                    operator = rule.create_operator(state, goal)
+                    reason = rule.description or f"Rule '{rule.name}' matched"
+                    proposals.append((operator, rule.priority, reason))
+                except Exception:
+                    # Rule matched but couldn't create operator - skip
+                    continue
+
+        # Sort by priority (highest first)
+        proposals.sort(key=lambda x: x[1], reverse=True)
+        return proposals
+
     def get_best_operator(
         self, state: EditorState, goal: Goal
     ) -> Optional[tuple[Operator, float]]:
