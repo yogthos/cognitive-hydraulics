@@ -63,3 +63,27 @@ class UtilityEvaluation(BaseModel):
         description="Which operator is recommended and why"
     )
 
+
+class CodeCandidate(BaseModel):
+    """Schema for a code fix candidate in evolutionary solver."""
+
+    hypothesis: str = Field(
+        description="Description of the fix strategy (e.g., 'Decrease Range', 'Fix Loop Condition')"
+    )
+    code_patch: str = Field(
+        description="The complete fixed code for the file"
+    )
+    reasoning: str = Field(
+        description="Why this approach might work"
+    )
+
+
+class PopulationProposal(BaseModel):
+    """Response schema for evolutionary population generation."""
+
+    candidates: List[CodeCandidate] = Field(
+        min_length=2,
+        max_length=10,
+        description="Distinct code fix candidates",
+    )
+

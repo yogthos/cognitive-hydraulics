@@ -5,6 +5,8 @@ from cognitive_hydraulics.engine.meta_monitor import MetaCognitiveMonitor, Cogni
 from cognitive_hydraulics.engine.impasse import Impasse, ImpasseType, ImpasseDetector
 from cognitive_hydraulics.engine.cognitive_agent import CognitiveAgent
 from cognitive_hydraulics.engine.actr_resolver import ACTRResolver
+from cognitive_hydraulics.engine.evaluator import CodeEvaluator, EvaluationResult
+from cognitive_hydraulics.engine.evolution import EvolutionarySolver
 
 __all__ = [
     "Rule",
@@ -16,5 +18,8 @@ __all__ = [
     "ImpasseDetector",
     "CognitiveAgent",
     "ACTRResolver",
+    "CodeEvaluator",
+    "EvaluationResult",
+    "EvolutionarySolver",
 ]
 

@@ -7,6 +7,7 @@ from typing import List, Optional, Tuple
 
 from cognitive_hydraulics.core.state import EditorState, Goal
 from cognitive_hydraulics.core.operator import Operator
+from cognitive_hydraulics.core.working_memory import WorkingMemory
 from cognitive_hydraulics.core.verbosity import should_print, normalize_verbose, format_thinking, VerbosityLevel
 from cognitive_hydraulics.llm.client import LLMClient
 from cognitive_hydraulics.llm.schemas import (
@@ -76,6 +77,8 @@ class ACTRResolver:
         state: EditorState,
         goal: Goal,
         verbose: Union[bool, int] = 2,
+        working_memory: Optional["WorkingMemory"] = None,
+        history_penalty_multiplier: float = 2.0,
     ) -> Optional[Tuple[Operator, float]]:
         """
         Use LLM to estimate utilities and select best operator.
@@ -132,21 +135,28 @@ class ACTRResolver:
                     print(f"   ✗ LLM query failed")
                 return None
 
-            # Calculate utilities
+            # Calculate utilities with history penalty (Tabu Search)
             utilities = []
             for op, est in zip(operators, evaluation.evaluations):
                 P = est.probability_of_success
                 C = est.estimated_cost
                 noise = random.gauss(0, self.noise_stddev)
 
-                U = P * self.G - C + noise
+                # Get history penalty (prevents infinite loops on same operator)
+                history_penalty = 0.0
+                if working_memory:
+                    action_count = working_memory.get_action_count(op.name)
+                    history_penalty = action_count * history_penalty_multiplier
+
+                U = P * self.G - C - history_penalty + noise
 
                 utilities.append((op, U, est))
 
                 if should_print(verbose_level, VerbosityLevel.BASIC):
+                    penalty_str = f", penalty={history_penalty:.1f}" if history_penalty > 0 else ""
                     print(
                         f"   {op.name}: U={U:.2f} "
-                        f"(P={P:.2f}, C={C:.1f}, noise={noise:+.2f})"
+                        f"(P={P:.2f}, C={C:.1f}, noise={noise:+.2f}{penalty_str})"
                     )
                     print(f"      └─ {est.reasoning}")
 

@@ -6,6 +6,8 @@ from cognitive_hydraulics.llm.schemas import (
     OperatorProposal,
     UtilityEstimate,
     UtilityEvaluation,
+    CodeCandidate,
+    PopulationProposal,
 )
 from cognitive_hydraulics.llm.prompts import PromptTemplates
 
@@ -15,6 +17,8 @@ __all__ = [
     "OperatorProposal",
     "UtilityEstimate",
     "UtilityEvaluation",
+    "CodeCandidate",
+    "PopulationProposal",
     "PromptTemplates",
 ]
 

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, List
+from typing import Dict, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from cognitive_hydraulics.llm.schemas import CodeCandidate
 
 
 class PromptTemplates:
@@ -279,4 +282,81 @@ Be concise, precise, and actionable. Focus on concrete steps that can be execute
                 compressed_lines.append(line)
 
         return "\n".join(compressed_lines)
+
+    @staticmethod
+    def generate_population_prompt(
+        error_context: str, goal: str, n: int = 3
+    ) -> str:
+        """
+        Prompt for generating a diverse population of code fix candidates.
+
+        Args:
+            error_context: Error message and relevant code context
+            goal: Goal description
+            n: Number of candidates to generate
+
+        Returns:
+            Prompt string
+        """
+        parts = [
+            f"GOAL: {goal}",
+            "",
+            "ERROR CONTEXT:",
+            error_context,
+            "",
+            f"TASK: Generate {n} DISTINCT hypotheses for fixing this bug.",
+            "",
+            "REQUIREMENTS:",
+            "1. Each candidate must propose a DIFFERENT approach",
+            "2. Do NOT repeat the same fix strategy",
+            "3. Provide the COMPLETE fixed code (not just a description)",
+            "4. Each candidate should have:",
+            "   - hypothesis: Brief description of the fix strategy",
+            "   - code_patch: The complete fixed code",
+            "   - reasoning: Why this approach might work",
+            "",
+            "EXAMPLES OF DIVERSE APPROACHES:",
+            "- Change loop range (e.g., range(0, n) to range(0, n-1))",
+            "- Add boundary check (e.g., if j+1 < n: before access)",
+            "- Fix algorithm logic (e.g., change comparison operator)",
+            "- Rewrite the function with different approach",
+            "",
+            "Generate exactly {n} distinct candidates:".format(n=n),
+        ]
+        return "\n".join(parts)
+
+    @staticmethod
+    def mutate_candidate_prompt(
+        candidate: "CodeCandidate", fitness_report: str
+    ) -> str:
+        """
+        Prompt for mutating a candidate based on fitness feedback.
+
+        Uses the guidance template from ga.md to ensure focused improvements.
+
+        Args:
+            candidate: The candidate to mutate
+            fitness_report: Report from evaluator (syntax/runtime/correctness status)
+
+        Returns:
+            Prompt string
+        """
+        parts = [
+            "You are an evolutionary code optimizer.",
+            "",
+            "Previous Attempt:",
+            "```python",
+            candidate.code_patch,
+            "```",
+            "",
+            "Fitness Report:",
+            fitness_report,
+            "",
+            "Your Goal: Modify the code to fix the failures identified in the Fitness Report.",
+            "Focus specifically on the issues mentioned.",
+            "Do not change the function signature.",
+            "",
+            "Provide the complete fixed code:",
+        ]
+        return "\n".join(parts)
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -39,6 +39,7 @@ class WorkingMemory:
         self.current_goal = initial_goal
         self.history: List[StateTransition] = []
         self.max_history_size = 1000  # Prevent unbounded growth
+        self.action_counts: Dict[str, int] = {}  # Track operator usage for Tabu Search
 
     def record_transition(
         self,
@@ -59,6 +60,10 @@ class WorkingMemory:
 
         self.history.append(transition)
         self.current_state = new_state
+
+        # Track action counts for Tabu Search
+        operator_name = operator.name
+        self.action_counts[operator_name] = self.action_counts.get(operator_name, 0) + 1
 
         # Trim history if too large
         if len(self.history) > self.max_history_size:
@@ -127,6 +132,22 @@ class WorkingMemory:
     def __len__(self) -> int:
         """Number of transitions recorded."""
         return len(self.history)
+
+    def get_action_count(self, operator_name: str) -> int:
+        """
+        Get the number of times an operator has been used.
+
+        Args:
+            operator_name: Name of the operator
+
+        Returns:
+            Count of how many times this operator has been executed
+        """
+        return self.action_counts.get(operator_name, 0)
+
+    def reset_action_counts(self) -> None:
+        """Reset action counts (useful for testing)."""
+        self.action_counts.clear()
 
     def __repr__(self) -> str:
         success_count = sum(1 for t in self.history if t.result.success)

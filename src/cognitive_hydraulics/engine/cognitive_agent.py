@@ -13,9 +13,12 @@ from cognitive_hydraulics.engine.rule_engine import RuleEngine
 from cognitive_hydraulics.engine.meta_monitor import MetaCognitiveMonitor, CognitiveMetrics
 from cognitive_hydraulics.engine.impasse import ImpasseDetector, Impasse, ImpasseType
 from cognitive_hydraulics.engine.actr_resolver import ACTRResolver
+from cognitive_hydraulics.engine.evaluator import CodeEvaluator
+from cognitive_hydraulics.engine.evolution import EvolutionarySolver
 from cognitive_hydraulics.safety.middleware import SafetyMiddleware, SafetyConfig
 from cognitive_hydraulics.memory.unified_memory import UnifiedMemory
 from cognitive_hydraulics.memory.chunk import create_chunk_from_success
+from cognitive_hydraulics.llm.client import LLMClient
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
@@ -110,6 +113,7 @@ class CognitiveAgent:
         if hasattr(self, '_actr_needs_memory_ref') and self._actr_needs_memory_ref:
             self.actr_resolver.memory = self.memory
 
+        self.config = config  # Store config for later use
         self.max_cycles = cycles
         self.current_goal: Optional[Goal] = None
         self.goal_stack: list[Goal] = []  # Stack of goals (for sub-goaling)
@@ -121,6 +125,25 @@ class CognitiveAgent:
         self._last_actr_operator: Optional[Operator] = None
         self._last_actr_utility: Optional[float] = None
         self._last_actr_state: Optional[EditorState] = None
+
+        # Evolutionary solver (fallback when ACT-R fails or pressure very high)
+        self.evolution_enabled = config.evolution_enabled if config else True
+        if self.evolution_enabled:
+            try:
+                # Create evaluator and evolutionary solver
+                evaluator = CodeEvaluator()
+                llm_client = self.actr_resolver.llm  # Reuse ACT-R's LLM client
+                self.evolution_solver = EvolutionarySolver(
+                    llm_client=llm_client,
+                    evaluator=evaluator,
+                    config=config,
+                )
+            except Exception as e:
+                print(f"Warning: Failed to initialize evolutionary solver: {e}")
+                self.evolution_enabled = False
+                self.evolution_solver = None
+        else:
+            self.evolution_solver = None
 
     async def solve(
         self, goal: Goal, initial_state: EditorState, verbose: Union[bool, int] = 2
@@ -326,7 +349,17 @@ class CognitiveAgent:
             print(format_thinking("Checking Cognitive Pressure", self.meta_monitor.get_thinking_summary(metrics)))
 
         # Check if we should fallback
-        if self.meta_monitor.should_trigger_fallback(metrics):
+        pressure = self.meta_monitor.calculate_pressure(metrics)
+        should_fallback = self.meta_monitor.should_trigger_fallback(metrics)
+
+        # Very high pressure (>= 0.9) or ACT-R failure -> try evolutionary solver
+        if (pressure >= 0.9 or should_fallback) and self.evolution_enabled and self.evolution_solver:
+            if self._goal_involves_code_fixing():
+                if should_print(verbose, VerbosityLevel.BASIC):
+                    print(f"\n🧬 VERY HIGH PRESSURE ({pressure:.2f}) - TRIGGERING EVOLUTIONARY SOLVER")
+                return await self._try_evolutionary_fallback(verbose)
+
+        if should_fallback:
             if should_print(verbose, VerbosityLevel.BASIC):
                 print(f"\n🔴 COGNITIVE OVERLOAD - TRIGGERING ACT-R FALLBACK")
 
@@ -345,6 +378,8 @@ class CognitiveAgent:
                     self.working_memory.current_state,
                     self.current_goal,
                     verbose=verbose,
+                    working_memory=self.working_memory,
+                    history_penalty_multiplier=self.config.cognitive_history_penalty_multiplier if self.config else 2.0,
                 )
 
                 if result:
@@ -396,11 +431,14 @@ class CognitiveAgent:
 
                 if generated_ops:
                     # Evaluate the generated operators and pick the best
+                    penalty_mult = self.config.cognitive_history_penalty_multiplier if self.config else 2.0
                     result = await self.actr_resolver.resolve(
                         generated_ops,
                         self.working_memory.current_state,
                         self.current_goal,
                         verbose=verbose,
+                        working_memory=self.working_memory,
+                        history_penalty_multiplier=penalty_mult,
                     )
 
                     if result:
@@ -436,16 +474,24 @@ class CognitiveAgent:
 
                         return True
                     else:
-                        if should_print(verbose, VerbosityLevel.BASIC):
-                            print(f"   ⚠️  ACT-R failed to evaluate generated operators")
-                            print(f"   ℹ️  LLM may be unavailable. Symbolic reasoning only mode.")
-                        return False
+                        # ACT-R failed - try evolutionary solver as fallback
+                        if self.evolution_enabled and self.evolution_solver and self._goal_involves_code_fixing():
+                            return await self._try_evolutionary_fallback(verbose)
+                        else:
+                            if should_print(verbose, VerbosityLevel.BASIC):
+                                print(f"   ⚠️  ACT-R failed to evaluate generated operators")
+                                print(f"   ℹ️  LLM may be unavailable. Symbolic reasoning only mode.")
+                            return False
                 else:
-                    if should_print(verbose, VerbosityLevel.BASIC):
-                        print(f"   ⚠️  ACT-R failed to generate operators")
-                        print(f"   ℹ️  LLM unavailable. Cannot proceed without rules or LLM.")
-                        print(f"   💡 Tip: Start Ollama with 'ollama serve' for LLM support")
-                    return False
+                    # ACT-R failed to generate - try evolutionary solver as fallback
+                    if self.evolution_enabled and self.evolution_solver and self._goal_involves_code_fixing():
+                        return await self._try_evolutionary_fallback(verbose)
+                    else:
+                        if should_print(verbose, VerbosityLevel.BASIC):
+                            print(f"   ⚠️  ACT-R failed to generate operators")
+                            print(f"   ℹ️  LLM unavailable. Cannot proceed without rules or LLM.")
+                            print(f"   💡 Tip: Start Ollama with 'ollama serve' for LLM support")
+                        return False
             else:
                 # Other impasse types - no operators to rate
                 if should_print(verbose, VerbosityLevel.BASIC):
@@ -475,11 +521,14 @@ class CognitiveAgent:
 
                 if generated_ops:
                     # Evaluate and pick the best
+                    penalty_mult = self.config.cognitive_history_penalty_multiplier if self.config else 2.0
                     result = await self.actr_resolver.resolve(
                         generated_ops,
                         self.working_memory.current_state,
                         self.current_goal,
                         verbose=verbose,
+                        working_memory=self.working_memory,
+                        history_penalty_multiplier=penalty_mult,
                     )
 
                     if result:
@@ -779,6 +828,136 @@ class CognitiveAgent:
                 default=0,
             ),
         }
+
+    def _goal_involves_code_fixing(self) -> bool:
+        """
+        Check if the current goal involves fixing code bugs.
+
+        Returns:
+            True if goal mentions keywords related to code fixing
+        """
+        if not self.current_goal:
+            return False
+
+        goal_lower = self.current_goal.description.lower()
+        keywords = ["fix", "bug", "error", "sort", "correct", "repair", "debug"]
+        return any(keyword in goal_lower for keyword in keywords)
+
+    def _extract_error_context(self, state: EditorState) -> str:
+        """
+        Extract error context for evolutionary solver.
+
+        Args:
+            state: Current state
+
+        Returns:
+            Formatted error context string
+        """
+        parts = []
+
+        # Add error from error_log
+        if state.error_log:
+            parts.append("ERROR:")
+            parts.append(state.error_log[-1])
+            parts.append("")
+
+        # Add relevant code from open files
+        if state.open_files:
+            parts.append("CODE:")
+            for filename, file_content in state.open_files.items():
+                if filename.endswith('.py'):
+                    parts.append(f"File: {filename}")
+                    # Include relevant lines around error if available
+                    code_lines = file_content.content.split('\n')
+                    # Show first 50 lines or all if less
+                    code_snippet = '\n'.join(code_lines[:50])
+                    if len(code_lines) > 50:
+                        code_snippet += "\n... (truncated)"
+                    parts.append(code_snippet)
+                    parts.append("")
+
+        # Add last output if available
+        if state.last_output:
+            parts.append("LAST OUTPUT:")
+            parts.append(state.last_output[:500])  # Limit output size
+            parts.append("")
+
+        return "\n".join(parts)
+
+    async def _try_evolutionary_fallback(self, verbose: int = 2) -> bool:
+        """
+        Try evolutionary solver as fallback when ACT-R fails or pressure is very high.
+
+        Args:
+            verbose: Verbosity level
+
+        Returns:
+            True if evolutionary solver found and applied a fix, False otherwise
+        """
+        if not self.evolution_solver or not self.current_goal:
+            return False
+
+        state = self.working_memory.current_state
+
+        # Extract error context
+        error_context = self._extract_error_context(state)
+
+        # Find the Python file to fix
+        target_file = None
+        original_code = None
+        test_code = None
+
+        for filename, file_content in state.open_files.items():
+            if filename.endswith('.py'):
+                target_file = filename
+                code = file_content.content
+
+                # Try to separate test code from main code
+                # Look for test functions or if __name__ == "__main__"
+                if 'def test_' in code or 'if __name__ == "__main__"' in code:
+                    # For simplicity, use full code as both code and test_code
+                    # The evaluator will handle it
+                    original_code = code
+                    test_code = code  # Tests are embedded
+                else:
+                    original_code = code
+                    test_code = None
+                break
+
+        if not target_file or not original_code:
+            if should_print(verbose, VerbosityLevel.BASIC):
+                print(f"   ⚠️  No Python file found for evolutionary solver")
+            return False
+
+        # Run evolutionary solver
+        best_candidate = await self.evolution_solver.evolve(
+            error_context=error_context,
+            goal=self.current_goal.description,
+            original_code=original_code,
+            test_code=test_code,
+            verbose=verbose,
+        )
+
+        if not best_candidate:
+            if should_print(verbose, VerbosityLevel.BASIC):
+                print(f"   ⚠️  Evolutionary solver did not find a solution")
+            return False
+
+        # Apply the fix using OpApplyFix
+        from cognitive_hydraulics.operators.file_ops import OpApplyFix
+
+        fix_op = OpApplyFix(
+            path=target_file,
+            fix_description=best_candidate.hypothesis,
+            fixed_content=best_candidate.code_patch,
+        )
+
+        if should_print(verbose, VerbosityLevel.BASIC):
+            print(f"   ✅ Applying evolutionary fix: {best_candidate.hypothesis}")
+
+        await self._apply_operator(fix_op, verbose)
+
+        return True
 
     def __repr__(self) -> str:
         return (

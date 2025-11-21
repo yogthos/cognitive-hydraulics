@@ -45,6 +45,20 @@ class Config(BaseModel):
     cognitive_max_cycles: int = Field(
         default=100, ge=1, description="Maximum decision cycles"
     )
+    cognitive_history_penalty_multiplier: float = Field(
+        default=2.0, ge=0.0, description="Multiplier for history penalty in Tabu Search"
+    )
+
+    # Evolutionary Strategy settings
+    evolution_enabled: bool = Field(
+        default=True, description="Enable evolutionary solver as fallback"
+    )
+    evolution_population_size: int = Field(
+        default=3, ge=2, le=10, description="Number of candidates in evolutionary population"
+    )
+    evolution_max_generations: int = Field(
+        default=3, ge=1, le=10, description="Maximum generations for evolution"
+    )
 
     @classmethod
     def create_default(cls) -> Config:
