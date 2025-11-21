@@ -37,21 +37,17 @@ class ChunkStore:
         """Lazy-load ChromaDB client."""
         if self._client is None:
             try:
-                from chromadb import Client, Settings
+                import chromadb
 
                 if self.persist_directory:
-                    settings = Settings(
-                        persist_directory=self.persist_directory,
-                        anonymized_telemetry=False,
-                    )
-                    self._client = Client(settings)
+                    self._client = chromadb.PersistentClient(path=self.persist_directory)
                 else:
-                    # In-memory for testing
-                    self._client = Client()
+                    # In-memory for testing (EphemeralClient)
+                    self._client = chromadb.EphemeralClient()
 
             except ImportError:
                 raise ImportError(
-                    "chromadb-client package required. Install with: pip install chromadb-client"
+                    "chromadb package required. Install with: pip install chromadb"
                 )
             except Exception as e:
                 # Handle Python 3.14+ compatibility issues with ChromaDB

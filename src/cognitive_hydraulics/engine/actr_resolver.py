@@ -68,6 +68,7 @@ class ACTRResolver:
             model_to_use = model if model is not None else "qwen3:8b"
             self.llm = LLMClient(model=model_to_use)
         self.context_manager = ContextWindowManager()
+        self.memory = None  # Will be set by CognitiveAgent if available
 
     async def resolve(
         self,
@@ -216,11 +217,25 @@ class ACTRResolver:
                                 error = f"Tests failed: Code runs without exceptions but tests did not pass. The goal requires tests to pass."
                                 break
 
+            # Check memory for similar past solutions (semantic retrieval)
+            past_solutions = []
+            if self.memory:
+                try:
+                    query = error if error else goal.description
+                    past_solutions = self.memory.retrieve_relevant_history(
+                        query=query,
+                        max_results=2
+                    )
+                except Exception:
+                    # If memory retrieval fails, continue without it
+                    pass
+
             # Create prompt
             prompt = PromptTemplates.generate_operators_prompt(
                 state_summary=state_summary,
                 goal=goal.description,
                 error=error,
+                past_solutions=past_solutions if past_solutions else None,
             )
 
             verbose_level = normalize_verbose(verbose)

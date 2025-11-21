@@ -5,8 +5,8 @@ python-dotenv>=1.0.0
 # LLM Integration
 ollama>=0.4.0
 
-# Memory & Storage (using client-only version to avoid onnxruntime dependency)
-chromadb-client>=0.4.24
+# Memory & Storage (full chromadb with onnxruntime for local operation)
+chromadb>=1.3.0
 
 # Code Analysis - Tree-sitter
 tree-sitter>=0.21.0

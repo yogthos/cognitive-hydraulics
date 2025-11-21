@@ -1,114 +1,215 @@
-<!-- 9ef7207b-3260-4f78-9c4a-f89ba569a606 5896658e-f010-4912-be48-ae7ac7636579 -->
-# Update Bug Fix Example with Full Execution Flow
+<!-- 9ef7207b-3260-4f78-9c4a-f89ba569a606 52821cb6-fa4a-46de-b881-9c552e5baa64 -->
+# Persistent Memory System Implementation
 
 ## Overview
 
-Transform `examples/bug_fix_example.py` to demonstrate the complete Cognitive Hydraulics decision cycle:
+Implement a ChromaDB-backed persistent goal stack that enables crash recovery and semantic retrieval of past solutions. This merges the existing ChunkStore with a new OperationalMemory system.
 
-1. **Soar Phase**: Read file → Execute code → Detect IndexError
-2. **Impasse Detection**: Multiple valid fix options create Tie impasse
-3. **ACT-R Fallback**: LLM evaluates options using utility equation (U = P×G - C)
-4. **Fix Application**: Apply selected fix
-5. **Verification**: Re-run code to confirm fix works
+## Phase 1: Create Memory Schema
 
-## Implementation Steps
+Create `src/cognitive_hydraulics/memory/context_node.py` with the ContextNode model:
 
-### 1. Update `examples/sort.py` with IndexError Bug
+```python
+from pydantic import BaseModel, Field
+from typing import Optional
+from uuid import uuid4
 
-- Change `bubbleSort` to have classic IndexError: `range(0, n - i)` should be `range(0, n - i - 1)`
-- Ensure bug is at line 6: `if arr[j] > arr[j + 1]:` where `j` can reach `n-1` causing `arr[j+1]` to be out of bounds
-- Add a simple test case at the bottom: `if __name__ == "__main__": test_bubbleSort()`
+class ContextNode(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    parent_id: Optional[str] = None  # None = Root Goal
+    goal_description: str
+    current_state_snapshot: str
+    status: str = "active"  # active, success, failed, paused
+    created_at: float
+    depth: int = 0
+    
+    # Optional: Store key operator info for impasse resolutions
+    resolution_operator: Optional[str] = None
+    resolution_reasoning: Optional[str] = None
+```
 
-### 2. Create Code Execution Operator (`src/cognitive_hydraulics/operators/exec_ops.py`)
+## Phase 2: Create Unified Memory System
 
-- New operator: `OpRunCode(path: str)` 
-- Executes Python file in subprocess
-- Captures stdout, stderr, exit code
-- Parses exceptions (IndexError, line numbers)
-- Updates `EditorState.error_log` with exception details
-- Returns `OperatorResult` with execution output/errors
-- Safety: Mark as non-destructive (read-only execution)
+Create `src/cognitive_hydraulics/memory/unified_memory.py` that merges ChunkStore functionality with OperationalMemory:
 
-### 3. Add Error Detection Rules (`src/cognitive_hydraulics/engine/rule_engine.py`)
+**Key features:**
 
-- Rule: "If goal mentions 'fix bug' and error_log contains IndexError, propose running code"
-- Rule: "If IndexError detected in loop context, create Tie impasse with multiple fix options"
-- Pattern matching: Detect `IndexError: list index out of range` and extract line number
+- Two ChromaDB collections: "goal_stack" (contexts) and "chunks" (learned rules)
+- Goal stack operations: push_context(), pop_context(), get_active_context()
+- Semantic retrieval: retrieve_relevant_history() for similar past solutions
+- Chunk learning: Migrate existing ChunkStore methods (store_chunk, retrieve_chunks)
 
-### 4. Enhance Impasse Detection for Tie Impasse
+**Core methods from memory.md:**
 
-- Update `src/cognitive_hydraulics/engine/impasse.py` to detect Tie impasse:
-- When multiple operators have same priority/utility
-- When error detected but multiple valid fixes exist
-- Create `TieImpasse` type that triggers ACT-R evaluation
+```python
+def push_context(self, goal: str, state: str, parent_id: Optional[str] = None) -> str
+def pop_context(self, status: str = "success", resolution_op: Optional[str] = None) -> Optional[str]
+def get_active_context() -> Optional[dict]
+def retrieve_relevant_history(self, query: str, max_results: int = 3) -> List[str]
+def get_context_chain() -> List[dict]  # For debugging: full parent chain
+```
 
-### 5. Update ACT-R Resolver for Fix Evaluation (`src/cognitive_hydraulics/engine/actr_resolver.py`)
+**Integration strategy:**
 
-- Enhance `evaluate_utilities_prompt` to handle fix options:
-- Input: Error type, location, code context, multiple fix options
-- Output: P (probability) and C (cost) for each option
-- Example: "Decrease Range: P=0.95, C=1" vs "Add Condition: P=0.90, C=2"
-- Update utility calculation to select best fix
+- Use existing `_get_client()` pattern from `chroma_store.py`
+- Handle Python 3.14+ compatibility gracefully (same error handling)
+- Store ContextNode as metadata + embedded text (goal + parent + state)
 
-### 6. Add Fix Application Operator (`src/cognitive_hydraulics/operators/file_ops.py`)
+## Phase 3: Migrate CognitiveAgent to Use UnifiedMemory
 
-- Enhance `OpWriteFile` or create `OpApplyFix`:
-- Takes fix description from ACT-R
-- Applies fix to code (e.g., change `range(0, n - i)` to `range(0, n - i - 1)`)
-- Updates file content in state
+Update `src/cognitive_hydraulics/engine/cognitive_agent.py`:
 
-### 7. Add Verification Step
+**Changes:**
 
-- After fix applied, automatically re-run code
-- Check: No exceptions + correct output
-- Update goal status to "success" if verification passes
+1. Replace `self.chunk_store = ChunkStore()` with `self.memory = UnifiedMemory()`
+2. Keep `self.goal_stack: List[Goal]` for in-memory tracking, but back it with UnifiedMemory
+3. Update `_push_goal()`:
+   ```python
+   def _push_goal(self, goal: Goal) -> None:
+       self.goal_stack.append(goal)
+       self.current_goal = goal
+       # NEW: Persist to memory
+       state_snapshot = self._create_state_snapshot(self.working_memory.current_state)
+       context_id = self.memory.push_context(
+           goal=goal.description,
+           state=state_snapshot,
+           parent_id=self.current_context_id
+       )
+       self.current_context_id = context_id
+   ```
 
-### 8. Update `examples/bug_fix_example.py`
+4. Update `_pop_goal()`:
+   ```python
+   def _pop_goal(self) -> Optional[Goal]:
+       if len(self.goal_stack) > 1:
+           old_goal = self.goal_stack.pop()
+           self.current_goal = self.goal_stack[-1]
+           # NEW: Persist to memory
+           status = "success" if old_goal.status == "success" else "failed"
+           self.current_context_id = self.memory.pop_context(status=status)
+           return self.current_goal
+       return None
+   ```
 
-- Set goal: "Fix the bug in sort.py so that it runs without errors and sorts the list correctly"
-- Remove pre-reading of file (let Soar rules handle it)
-- Enable dry-run=False to allow actual execution
-- Add verbose output to show each phase:
-- "Turn 1: Soar Phase - Reading sort.py"
-- "Turn 1: Soar Phase - Executing sort.py"
-- "Turn 1: Soar Phase - IndexError detected at line 6"
-- "Turn 2: Tie Impasse - Multiple fix options"
-- "Turn 2: ACT-R Fallback - Evaluating options"
-- "Turn 3: Applying fix - range(0, n - i - 1)"
-- "Turn 3: Verification - Code runs successfully"
+5. Store impasse resolutions in memory when ACT-R is used:
 
-### 9. Register New Operators
+   - In `_handle_impasse()`, after ACT-R resolves, call `memory.update_context_resolution()`
 
-- Update `src/cognitive_hydraulics/operators/__init__.py` to export `OpRunCode`
-- Ensure operators are discoverable by RuleEngine
+## Phase 4: Integrate Semantic Retrieval into ACT-R
 
-## Files to Modify
+Update `src/cognitive_hydraulics/engine/actr_resolver.py`:
 
-- `examples/sort.py` - Update bug to IndexError
-- `examples/bug_fix_example.py` - Complete rewrite for execution flow
-- `src/cognitive_hydraulics/operators/exec_ops.py` - New file for execution operator
-- `src/cognitive_hydraulics/operators/__init__.py` - Export new operator
-- `src/cognitive_hydraulics/engine/rule_engine.py` - Add execution and error detection rules
-- `src/cognitive_hydraulics/engine/impasse.py` - Add Tie impasse detection
-- `src/cognitive_hydraulics/engine/actr_resolver.py` - Enhance for fix evaluation
+**In `generate_operators()` method:**
 
-## Testing
+1. Before querying LLM, retrieve similar past solutions:
+   ```python
+   # NEW: Check memory for similar past solutions
+   if hasattr(self, 'memory') and self.memory:
+       similar_solutions = self.memory.retrieve_relevant_history(
+           query=error or goal.description,
+           max_results=2
+       )
+       if similar_solutions:
+           # Inject into prompt
+           context_additions.append("PAST SOLUTIONS:")
+           for sol in similar_solutions:
+               context_additions.append(f"- {sol}")
+   ```
 
-- Run `python examples/bug_fix_example.py` and verify:
-- File is read automatically
-- Code is executed
-- IndexError is detected
-- Tie impasse is created
-- ACT-R evaluates options
-- Fix is applied
-- Verification passes
+2. Pass this context to `PromptTemplates.generate_operators_prompt()`
 
-## Notes
+**Update prompt template in `src/cognitive_hydraulics/llm/prompts.py`:**
 
-- Test Harness Agent and Distance to Goal metric are deferred to future phase
-- Verification is basic: re-run code + check output correctness
-- Safety: Code execution is sandboxed (subprocess) but not fully isolated
+- Add optional `past_solutions: List[str]` parameter
+- Inject them into the prompt: "Note: Similar issues were previously resolved using..."
+
+## Phase 5: Add Crash Recovery Support
+
+Update `src/cognitive_hydraulics/cli/main.py`:
+
+**Add --resume flag:**
+
+```python
+@app.command()
+def solve(
+    goal: str,
+    # ... existing params ...
+    resume: bool = typer.Option(False, "--resume", help="Resume from last active context"),
+):
+    # NEW: Check for active contexts if --resume
+    if resume:
+        memory = UnifiedMemory(...)
+        active_context = memory.get_active_context()
+        if active_context:
+            print(f"Resuming from: {active_context['goal_description']}")
+            # Reconstruct state from context
+            agent.current_context_id = active_context['id']
+            agent.goal_stack = [Goal(description=active_context['goal_description'])]
+        else:
+            print("No active context found to resume")
+            return
+```
+
+**On crash/interruption:**
+
+- UnifiedMemory persists contexts to disk automatically (ChromaDB handles this)
+- Active contexts remain with status="active" until explicitly popped
+
+## Phase 6: Update Existing References
+
+1. Update `src/cognitive_hydraulics/memory/__init__.py`:
+
+   - Export `UnifiedMemory` instead of `ChunkStore`
+   - Keep backward compatibility by aliasing: `ChunkStore = UnifiedMemory`
+
+2. Update imports in:
+
+   - `cognitive_agent.py`: Use `UnifiedMemory`
+   - Any tests that use `ChunkStore`
+
+3. Update initialization in `cognitive_agent.py`:
+   ```python
+   if enable_learning:
+       self.memory = UnifiedMemory(persist_directory=chunk_store_path)
+       self.current_context_id = None
+   ```
+
+
+## Testing Strategy
+
+1. Unit tests for UnifiedMemory:
+
+   - Test push/pop operations
+   - Test semantic retrieval
+   - Test context chain traversal
+
+2. Integration test for crash recovery:
+
+   - Start solve, interrupt mid-cycle
+   - Run with --resume, verify it continues
+
+3. Test semantic retrieval in ACT-R:
+
+   - Create two similar bugs in sequence
+   - Verify second bug retrieves solution from first
+
+## Migration Notes
+
+- Existing ChunkStore data remains compatible (same "chunks" collection)
+- New "goal_stack" collection created automatically on first use
+- Gracefully handle ChromaDB unavailability (Python 3.14+)
+- If ChromaDB fails, fall back to in-memory goal stack only
 
 ### To-dos
 
-- [x] 
+- [ ] Investigate ChromaDB Python 3.14 compatibility issue
+- [ ] Add warning suppression for ChromaDB Pydantic V1 warning
+- [ ] Add graceful error handling for ChromaDB import failures
+- [ ] Document Python 3.14 compatibility limitations
+- [ ] Create ContextNode schema in memory/context_node.py
+- [ ] Create UnifiedMemory class merging OperationalMemory + ChunkStore
+- [ ] Update CognitiveAgent to use UnifiedMemory for goal stack
+- [ ] Add semantic retrieval to ACT-R resolver
+- [ ] Add --resume flag to CLI for crash recovery
+- [ ] Update imports and backward compatibility aliases
+- [ ] Add unit and integration tests for memory system

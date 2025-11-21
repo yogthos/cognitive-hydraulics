@@ -91,6 +91,9 @@ def solve(
     config_path: Optional[Path] = typer.Option(
         None, "--config", help="Path to custom config file"
     ),
+    resume: bool = typer.Option(
+        False, "--resume", help="Resume from last active context (requires ChromaDB)"
+    ),
 ):
     """
     Solve a goal using the cognitive agent.
@@ -112,6 +115,7 @@ def solve(
         f"[bold cyan]Working Directory:[/bold cyan] {working_dir}\n"
         f"[bold cyan]Dry-run:[/bold cyan] {dry_run}\n"
         f"[bold cyan]Learning:[/bold cyan] {enable_learning}\n"
+        f"[bold cyan]Resume:[/bold cyan] {resume}\n"
         f"[bold cyan]Config:[/bold cyan] {config.llm_model} @ {config.llm_host}",
         title="🎯 Cognitive Agent",
         border_style="green",
@@ -120,6 +124,35 @@ def solve(
     # Handle verbosity: quiet overrides verbose
     from cognitive_hydraulics.core.verbosity import normalize_verbose
     verbose_level = 0 if quiet else normalize_verbose(verbose)
+
+    # Check for resume flag - try to resume from last active context
+    if resume:
+        if not enable_learning:
+            console.print("[yellow]⚠ Warning: --resume requires learning to be enabled. Ignoring --resume flag.[/yellow]\n")
+            resume = False
+        else:
+            try:
+                # Try to load memory and check for active contexts
+                memory_path = str(chunk_store) if chunk_store else None
+                memory = UnifiedMemory(persist_directory=memory_path)
+                active_context = memory.get_active_context()
+
+                if active_context:
+                    metadata = active_context.get('metadata', {})
+                    goal_desc = metadata.get('goal_description', 'Unknown')
+                    console.print(f"\n[bold green]📂 Resuming from last active context:[/bold green]")
+                    console.print(f"[cyan]Goal: {goal_desc}[/cyan]")
+                    console.print(f"[cyan]Depth: {metadata.get('depth', 0)}[/cyan]\n")
+
+                    # Override the goal with the one from the context
+                    goal = goal_desc
+                else:
+                    console.print("[yellow]ℹ No active context found to resume. Starting fresh.[/yellow]\n")
+                    resume = False
+            except Exception as e:
+                console.print(f"[yellow]⚠ Warning: Failed to load memory for resume: {e}[/yellow]\n")
+                console.print("[yellow]Starting fresh without resume.[/yellow]\n")
+                resume = False
 
     # Create agent (CLI args override config)
     safety_config = SafetyConfig(dry_run=dry_run)
@@ -150,9 +183,11 @@ def solve(
                 console.print("\n[bold red]✗ Goal not achieved[/bold red]")
 
             # Show statistics
-            if enable_learning and agent.chunk_store:
-                stats = agent.chunk_store.get_stats()
-                console.print(f"\n[cyan]Chunks learned: {stats['total_chunks']}[/cyan]")
+            if enable_learning and agent.memory:
+                stats = agent.memory.get_stats()
+                console.print(f"\n[cyan]Memory Stats:[/cyan]")
+                console.print(f"  - Contexts: {stats['total_contexts']} (active: {stats['active_contexts']})")
+                console.print(f"  - Chunks learned: {stats['total_chunks']}")
 
         except KeyboardInterrupt:
             console.print("\n[yellow]⚠ Interrupted by user[/yellow]")

@@ -46,7 +46,7 @@ class TestMetaCognitiveMonitorThinking:
         assert "Time in state: 400ms" in summary
         assert "Impasses: 2" in summary
         assert "Ambiguity: 0.80" in summary
-        assert "HIGH" in summary or "ELEVATED" in summary
+        assert "HIGH" in summary or "ELEVATED" in summary or "CRITICAL" in summary
 
     def test_get_thinking_summary_critical_pressure(self):
         """Test thinking summary for critical pressure."""

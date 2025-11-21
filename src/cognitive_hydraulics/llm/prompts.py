@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, List
 
 
 class PromptTemplates:
@@ -15,7 +15,7 @@ Be concise, precise, and actionable. Focus on concrete steps that can be execute
 
     @staticmethod
     def generate_operators_prompt(
-        state_summary: Dict, goal: str, error: str = None
+        state_summary: Dict, goal: str, error: str = None, past_solutions: List[str] = None
     ) -> str:
         """
         Prompt for NO_CHANGE impasse: Generate new operator proposals.
@@ -26,6 +26,7 @@ Be concise, precise, and actionable. Focus on concrete steps that can be execute
             state_summary: Compressed state from ContextWindowManager
             goal: Goal description
             error: Recent error if available
+            past_solutions: Similar solutions from memory (if available)
 
         Returns:
             Prompt string
@@ -40,6 +41,19 @@ Be concise, precise, and actionable. Focus on concrete steps that can be execute
 
         if error:
             parts.extend(["", f"RECENT ERROR: {error}"])
+
+        # Add past solutions if available (semantic retrieval from memory)
+        if past_solutions:
+            parts.extend([
+                "",
+                "PAST SOLUTIONS (similar issues resolved previously):",
+            ])
+            for i, solution in enumerate(past_solutions, 1):
+                parts.append(f"{i}. {solution}")
+            parts.extend([
+                "",
+                "Note: Consider these past solutions when proposing operators, but adapt them to the current context.",
+            ])
 
         # Add relevant code if available
         relevant_code = state_summary.get("relevant_code", {})

@@ -14,7 +14,7 @@ from cognitive_hydraulics.engine.meta_monitor import MetaCognitiveMonitor, Cogni
 from cognitive_hydraulics.engine.impasse import ImpasseDetector, Impasse, ImpasseType
 from cognitive_hydraulics.engine.actr_resolver import ACTRResolver
 from cognitive_hydraulics.safety.middleware import SafetyMiddleware, SafetyConfig
-from cognitive_hydraulics.memory.chroma_store import ChunkStore
+from cognitive_hydraulics.memory.unified_memory import UnifiedMemory
 from cognitive_hydraulics.memory.chunk import create_chunk_from_success
 from typing import TYPE_CHECKING, Union
 
@@ -70,19 +70,23 @@ class CognitiveAgent:
                 max_cycles if max_cycles is not None else config.cognitive_max_cycles
             )
             self.actr_resolver = ACTRResolver(config=config)
+            # Will set memory reference after initialization
+            self._actr_needs_memory_ref = True
         else:
             # Backward compatibility: use defaults if no config
             depth = depth_threshold if depth_threshold is not None else 3
             time_ms = time_threshold_ms if time_threshold_ms is not None else 500.0
             cycles = max_cycles if max_cycles is not None else 100
             self.actr_resolver = ACTRResolver()
+            # Will set memory reference after initialization
+            self._actr_needs_memory_ref = True
 
         self.rule_engine = RuleEngine()
         self.meta_monitor = MetaCognitiveMonitor(depth, time_ms)
         self.impasse_detector = ImpasseDetector()
         self.safety = SafetyMiddleware(safety_config)  # Safety layer
 
-        # Learning/Chunking system
+        # Unified Memory System (goal stack + learning/chunking)
         self.enable_learning = enable_learning
         if enable_learning:
             try:
@@ -90,14 +94,21 @@ class CognitiveAgent:
                 import warnings
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=UserWarning, module="chromadb")
-                    self.chunk_store = ChunkStore(persist_directory=chunk_store_path)
+                    self.memory = UnifiedMemory(persist_directory=chunk_store_path)
+                    self.current_context_id = None
             except (RuntimeError, Exception) as e:
                 # ChromaDB not available (e.g., Python 3.14+ incompatibility)
                 # Note: Warning will be shown when learning is actually attempted
-                self.chunk_store = None
+                self.memory = None
+                self.current_context_id = None
                 self.enable_learning = False  # Disable learning if ChromaDB unavailable
         else:
-            self.chunk_store = None
+            self.memory = None
+            self.current_context_id = None
+
+        # Set memory reference in ACT-R resolver for semantic retrieval
+        if hasattr(self, '_actr_needs_memory_ref') and self._actr_needs_memory_ref:
+            self.actr_resolver.memory = self.memory
 
         self.max_cycles = cycles
         self.current_goal: Optional[Goal] = None
@@ -347,8 +358,8 @@ class CognitiveAgent:
 
                     await self._apply_operator(operator, verbose)
 
-                    # LEARNING: If operator succeeded, create chunk
-                    if self.enable_learning and self.chunk_store:
+                    # LEARNING: If operator succeeded, create chunk and store resolution
+                    if self.enable_learning and self.memory:
                         last_transition = self.working_memory.history[-1] if self.working_memory.history else None
                         if last_transition and last_transition.success:
                             chunk = create_chunk_from_success(
@@ -359,7 +370,13 @@ class CognitiveAgent:
                             )
                             if should_print(verbose, VerbosityLevel.BASIC):
                                 print(f"   💾 Learning: Created chunk {chunk.id[:8]}...")
-                            self.chunk_store.store_chunk(chunk)
+                            self.memory.store_chunk(chunk)
+
+                            # Store resolution in current context
+                            self.memory.update_context_resolution(
+                                operator=operator.name if operator else None,
+                                reasoning=f"ACT-R selected with utility {self._last_actr_utility:.2f}"
+                            )
 
                     return True
                 else:
@@ -397,8 +414,8 @@ class CognitiveAgent:
 
                         await self._apply_operator(operator, verbose)
 
-                        # LEARNING: If operator succeeded, create chunk
-                        if self.enable_learning and self.chunk_store:
+                        # LEARNING: If operator succeeded, create chunk and store resolution
+                        if self.enable_learning and self.memory:
                             last_transition = self.working_memory.history[-1] if self.working_memory.history else None
                             if last_transition and last_transition.success:
                                 chunk = create_chunk_from_success(
@@ -409,7 +426,13 @@ class CognitiveAgent:
                                 )
                                 if should_print(verbose, VerbosityLevel.BASIC):
                                     print(f"   💾 Learning: Created chunk {chunk.id[:8]}...")
-                                self.chunk_store.store_chunk(chunk)
+                                self.memory.store_chunk(chunk)
+
+                                # Store resolution in current context
+                                self.memory.update_context_resolution(
+                                    operator=operator.name if operator else None,
+                                    reasoning=f"ACT-R selected with utility {self._last_actr_utility:.2f}"
+                                )
 
                         return True
                     else:
@@ -688,16 +711,52 @@ class CognitiveAgent:
         # In practice, would need more sophisticated goal checking
         return self.current_goal.status == "success"
 
+    def _create_state_snapshot(self, state: EditorState) -> str:
+        """Create a text snapshot of the current state for memory storage."""
+        parts = [f"Working dir: {state.working_directory}"]
+
+        if state.open_files:
+            files = list(state.open_files.keys())
+            parts.append(f"Open files: {', '.join(files[:5])}")
+            if len(files) > 5:
+                parts.append(f"  (+{len(files) - 5} more)")
+
+        if state.error_log:
+            parts.append(f"Recent errors: {len(state.error_log)}")
+            if state.error_log:
+                parts.append(f"  Last error: {state.error_log[-1][:100]}")
+
+        if state.last_output:
+            parts.append(f"Last output: {state.last_output[:100]}...")
+
+        return "\n".join(parts)
+
     def _push_goal(self, goal: Goal) -> None:
         """Push a new goal onto the stack."""
         self.goal_stack.append(goal)
         self.current_goal = goal
 
+        # Persist to memory if available
+        if self.memory and self.working_memory:
+            state_snapshot = self._create_state_snapshot(self.working_memory.current_state)
+            context_id = self.memory.push_context(
+                goal=goal.description,
+                state=state_snapshot,
+                parent_id=self.current_context_id
+            )
+            self.current_context_id = context_id
+
     def _pop_goal(self) -> Optional[Goal]:
         """Pop current goal from stack."""
         if len(self.goal_stack) > 1:
-            self.goal_stack.pop()
+            old_goal = self.goal_stack.pop()
             self.current_goal = self.goal_stack[-1]
+
+            # Persist to memory if available
+            if self.memory:
+                status = "success" if old_goal.status == "success" else "failed"
+                self.current_context_id = self.memory.pop_context(status=status)
+
             return self.current_goal
         return None
 

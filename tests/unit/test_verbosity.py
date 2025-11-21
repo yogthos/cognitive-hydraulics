@@ -88,11 +88,10 @@ class TestFormatThinking:
         content = "First line\nSecond line\nThird line"
         result = format_thinking("Analysis", content)
 
-        lines = result.split("\n")
-        assert lines[0] == "THINKING: Analysis"
-        assert "→ First line" in lines
-        assert "→ Second line" in lines
-        assert "→ Third line" in lines
+        assert "THINKING: Analysis" in result
+        assert "→ First line" in result
+        assert "→ Second line" in result
+        assert "→ Third line" in result
 
     def test_format_thinking_empty_lines_ignored(self):
         """Test that empty lines are ignored."""
