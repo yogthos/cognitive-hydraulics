@@ -11,6 +11,12 @@
 
 ## 🎯 Overview
 
+We have all experienced the frustration of watching an AI agent get stuck in a "loop of doom," where it fails a task, apologizes, and then tries the exact same failed approach again. This happens because current architectures blindly trust a Large Language Model to handle every single step of a process, essentially asking a creative writing engine to perform strict logic. This project explores a new architecture called "Cognitive Hydraulics" that treats reasoning like a pressure system with two distinct modes.
+
+In this system, the agent defaults to a rigid, symbolic logic layer that operates like a standard computer program: it’s fast, incredibly cheap, and physically incapable of hallucinating because it follows strict rules. The LLM is only engaged as a "relief valve" when that logic layer hits an impasse where the "pressure" of ambiguity gets too high. When the valve opens, the LLM provides a creative intuition to unblock the system, and then the valve closes to verify that solution with logic.
+
+Additionally, the approach solves the amnesia problem common in current agents. When the LLM successfully improvises a solution, the system "chunks" that success, converting the expensive, creative guess into a cheap, hard-coded rule for the future. It mimics how humans move from clumsy beginner thinking to muscle memory. Instead of a chaotic, hallucinating chatbot, you get a system that acts like a sober project manager: handling the routine paperwork with precision and only calling in the "creative genius" when a truly novel problem needs solving.
+
 Cognitive Hydraulics treats reasoning as a **pressure system** with two distinct modes:
 
 **🐢 System 2 (Soar)** - Slow, deliberate, symbolic reasoning
