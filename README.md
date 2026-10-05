@@ -1,12 +1,40 @@
 # cognitive-hydraulics
 
-A hybrid reasoning engine on [jolt](https://github.com/jolt-lang/jolt). Deliberate symbolic reasoning (System 2) with a heuristic fallback (System 1), bridged by an LLM intuition source.
+A hybrid reasoning engine on [Jolt](https://github.com/jolt-lang/jolt).
+Deliberate symbolic reasoning (System 2) with a heuristic fallback (System 1), bridged by an LLM intuition source.
 
-The system uses a Soar-style decision cycle, the impasse taxonomy, the pressure valve, and the ACT-R utility equation. What's new is a pure, injectable core where every piece is data, the LLM is a protocol with a deterministic stub, and the load-bearing math is pinned by [writ](https://github.com/jlt-commons/writ) specs.
+A pure symbolic core built on a Soar-style decision cycle and impasse taxonomy, with ACT-R's utility equation as the fallback.
+On an impasse, the core first deliberates by look-ahead. When a pressure valve signals that deliberation is stalling,
+it falls back to System 1: ACT-R utility over success and cost estimates supplied by an LLM.
+Resolutions are stored as chunks, so the same impasse never happens twice.
 
 ## The idea
 
 One cycle: **preferences → decide → apply, or impasse**.
+
+```mermaid
+flowchart TD
+    start([state + goal]) --> met{goal met?}
+    met -- yes --> done([solved])
+    met -- no --> prefs["gather preferences<br/>rules · recalled chunks · no-change rejections"]
+    prefs --> decide{"decide<br/>hyd.impasse"}
+    decide -- select --> apply[apply operator]
+    decide -- "tie · conflict ·<br/>constraint-failure · state-no-change" --> push["push substate,<br/>read pressure valve"]
+    push --> valve{"pressure ≥ 0.7?"}
+    valve -- no --> s2["System 2<br/>look-ahead through :simulate"]
+    valve -- yes --> s1["System 1<br/>ACT-R: U = P·G − C − penalty + ε"]
+    llm[["LLM intuition<br/>estimates P and C · proposes operators"]] -.-> s1
+    s2 -- selects --> apply
+    s2 -- valve breached mid-search --> s1
+    s2 -- "no model or unresolved" --> nest["substate stays;<br/>next impasse nests deeper"]
+    s1 --> apply
+    apply --> changed{state changed?}
+    changed -- yes --> pop["pop goal stack, relieve pressure;<br/>chunk a look-ahead or ACT-R resolution"]
+    changed -- "no: operator-no-change" --> reject["reject operator in this state,<br/>push substate"]
+    pop --> met
+    reject --> met
+    nest --> met
+```
 
 - Rules (pure data) state Soar preferences about operators: acceptable at a
   priority, reject, prohibit, require, best, worst, better/worse.

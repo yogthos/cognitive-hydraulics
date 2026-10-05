@@ -1,28 +1,83 @@
 # incident — cognitive-hydraulics as an on-call decision maker
 
-A page fires on `payments`. The runbook knows every remedy — restart,
-rollback, scale out — and proposes them all, tied: the rules cannot tell
-which one fits, because what distinguishes them is the root cause, and only
-the intuition engine can read those tea leaves (deploy freshness, what the
-diff touched, the shape of the error signal).
+A page fires on `payments`. The runbook knows the remedies (restart,
+rollback, scale out) but not which one fits, because that depends on the
+root cause. The example runs one shift end to end against a live LLM and
+shows four things:
 
-That tie is the whole demo:
+1. **Rules that know the options but can't choose.** The runbook proposes
+   every remedy at the same priority, so every decision is a tie. The agent
+   has no model of what each remedy would do (`:simulate` is absent), so
+   System 2 has nothing to deliberate with.
+2. **The pressure valve decides when to ask the LLM, not the impasse.** The
+   first two ties just nest substates while pressure climbs (0.38, then
+   0.62). Only on the third, at 0.85, does System 1 fire and the LLM get
+   called.
+3. **The LLM estimates; ACT-R chooses.** DeepSeek (or Lev) returns
+   P(success) and cost for each remedy. The utility equation
+   `U = P·G − C` picks the winner. Noise is off (`:noise-s 0.0`), so the
+   pick is deterministic given the estimates.
+4. **Learning takes the LLM out of the loop.** A wrong remedy changes
+   nothing, so it's an operator no-change: it's rejected in that state and
+   System 1 picks again among the rest. The remedy that clears the page is
+   filed as a chunk and saved to `chunks.edn`. Run the same scenario again
+   and the chunk fires before any impasse: one cycle, `llm calls: 0`.
 
-1. **Cycles 0–1** — the runbook ties. The agent has no model of what each
-   remedy would do (that would need the root cause), so System 2 has
-   nothing to deliberate with: each substate impasses again beneath the
-   last, and pressure climbs — 0.38, then 0.62.
-2. **Cycle 2** — pressure ≥ 0.7, the valve opens, **System 1 fires**:
-   DeepSeek (`deepseek-chat`, JSON mode) estimates P(success) and cost for
-   each remedy; ACT-R utility picks the winner.
-3. **A wrong guess costs a cycle** — a remedy that changes nothing is an
-   operator no-change: it is rejected in that state and System 1 picks
-   again among the rest.
-4. **Chunking** — the remedy that cleared the page is filed in the store,
-   saved to `chunks.edn`.
-5. **Run it again** — the chunk fires as a learned preference before any
-   impasse: `llm calls: 0`. Chunks match on a similar state for the same
-   goal, so a different root cause is a different situation.
+## The scenarios
+
+| scenario (`jolt -M:run <name>`) | hidden root cause | remedy that clears it |
+| --- | --- | --- |
+| `bad-config` (default) | bad config in the last deploy | rollback |
+| `memory-leak` | a memory leak | restart |
+| `capacity` | not enough capacity | scale out |
+
+Every scenario shows the agent the same signals: service health, the last
+deploy (14 minutes old, touching `config/limits.toml` and `src/api.clj`),
+and the page (`latency p99 4.2s, error rate 9%`). The root cause is carried
+in the state as `:root-cause` and only `world/apply-op` acts on it: a remedy
+that doesn't match the cause leaves the state unchanged.
+
+## The flow
+
+```mermaid
+flowchart TD
+    page([page fires on payments]) --> recall{"chunk recalled?<br/>same goal, state ≥ 0.9 similar"}
+    recall -- "yes: warm run" --> chunk[chunk marks its remedy best] --> apply
+    recall -- "no: cold run" --> runbook["runbook proposes restart · rollback · scale-out<br/>all at priority 1.0"]
+    runbook --> tie["tie: impasse,<br/>push substate"]
+    tie --> valve{"pressure ≥ 0.7?"}
+    valve -- "no: 0.38, then 0.62" --> s2["System 2 has no :simulate model;<br/>substate stays unresolved"]
+    s2 -- next cycle, one level deeper --> recall
+    valve -- "yes: 0.85" --> llm[["DeepSeek or Lev<br/>estimates P and C for each remedy"]]
+    llm --> actr["ACT-R picks the highest U = P·G − C"]
+    actr --> apply[apply remedy]
+    apply --> match{matches the root cause?}
+    match -- "no: operator no-change" --> reject[reject it in this state] --> recall
+    match -- yes --> fixed([page cleared, payments healthy])
+    fixed -- picked by ACT-R --> save[(chunk saved to chunks.edn)]
+```
+
+On a cold store with `bad-config`, if the LLM rates rollback highest the
+trace is `subgoal, subgoal, actr -> rollback`: three cycles, one LLM call.
+If it guesses restart first, restart is rejected, the next tie goes straight
+back to System 1 (pressure is already past the threshold), and rollback
+wins: two LLM calls. The offline tests in `test/ex/incident/main_test.clj`
+pin both paths with a stubbed LLM.
+
+## What it doesn't show
+
+- **System 2 doing real work.** The agent has no model of the remedies, so
+  look-ahead never runs here. The blocks demo in the repo root
+  (`jolt -M:run --lookahead`) shows System 2 settling a tie.
+- **Chunks generalising across causes.** States are matched by leaf-fact
+  overlap. The scenarios differ only in `:root-cause`, which drops their
+  similarity below the 0.9 threshold, so a `bad-config` chunk never fires
+  on `memory-leak`. That separation comes from the hidden fact being in the
+  state; in a real deployment the observable signals would have to differ.
+- **A blind LLM, with DeepSeek.** The DeepSeek adapter sends the full state,
+  `:root-cause` included. The Lev adapter projects it out
+  (`lev/project-state`), so only Lev has to infer the cause from the
+  signals.
 
 ## Run it
 
