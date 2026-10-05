@@ -26,6 +26,9 @@
           parsed (openai/parse-estimates reply ops)]
       (is (= {:p 0.9 :c 1.0}
              (get parsed {:op :move :args {:b :a :to :b}})))))
+  (testing "estimates that are not numbers are dropped"
+    (let [reply "{\"move|a|b\": {\"p\": \"high\", \"c\": 1.0}, \"move|b|a\": {\"p\": 0.4}}"]
+      (is (= {} (openai/parse-estimates reply ops)))))
   (testing "garbage parses to an empty map"
     (is (= {} (openai/parse-estimates "no json here" ops)))))
 

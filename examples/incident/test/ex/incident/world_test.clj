@@ -40,7 +40,7 @@
                 :apply world/apply-op
                 :goal-met? world/goal-met?
                 :intuition (llm/->StubLLM estimates nil)
-                :params {:goal-value 10.0 :noise-stddev 0.0 :history-penalty 2.0}}))
+                :params {:noise-s 0.0}}))
 
 (deftest decision-cycle-with-stub-intuition
   (testing "ties escalate to the intuition, which breaks them"

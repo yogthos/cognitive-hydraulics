@@ -8,15 +8,21 @@ diff touched, the shape of the error signal).
 
 That tie is the whole demo:
 
-1. **Cycle 0–1** — System 2 tie-breaks (`restart`, the first candidate).
-   It doesn't help; the page stays. Each tie raises the agent's depth.
-2. **Pressure climbs** — 0.27, then 0.5, then ≥ 0.7: the valve opens.
-3. **System 1 fires** — DeepSeek (`deepseek-chat`, JSON mode) estimates
-   P(success) and cost for each remedy; ACT-R utility picks the winner.
-   The pick lands (`rollback`), the page clears.
-4. **Chunking** — the resolution is filed in `chunks.edn`.
-5. **Run it again** — the chunk is recalled before the LLM is ever
-   consulted: `llm calls: 0`.
+1. **Cycles 0–1** — the runbook ties. The agent has no model of what each
+   remedy would do (that would need the root cause), so System 2 has
+   nothing to deliberate with: each substate impasses again beneath the
+   last, and pressure climbs — 0.38, then 0.62.
+2. **Cycle 2** — pressure ≥ 0.7, the valve opens, **System 1 fires**:
+   DeepSeek (`deepseek-chat`, JSON mode) estimates P(success) and cost for
+   each remedy; ACT-R utility picks the winner.
+3. **A wrong guess costs a cycle** — a remedy that changes nothing is an
+   operator no-change: it is rejected in that state and System 1 picks
+   again among the rest.
+4. **Chunking** — the remedy that cleared the page is filed in the store,
+   saved to `chunks.edn`.
+5. **Run it again** — the chunk fires as a learned preference before any
+   impasse: `llm calls: 0`. Chunks match on a similar state for the same
+   goal, so a different root cause is a different situation.
 
 ## Run it
 
@@ -56,8 +62,9 @@ jolt -M:run --lev --reset
 - `src/ex/incident/openai.clj` — the chat-completions engine: an
   OpenAI-compatible adapter (DeepSeek, llama-server, vLLM) implementing
   `hyd.llm/Intuition`, plus the shared `op-id` both engines key by.
-- `src/ex/incident/deepseek.clj` — DeepSeek config + `chunk-aware`: wraps
-  any `Intuition` with the chunk store so recall short-circuits the call.
+- `src/ex/incident/deepseek.clj` — DeepSeek config, and the chunk store's
+  file (recall itself is the library's: `solve` takes and returns the
+  store).
 - `src/ex/incident/lev.clj` — the Lev engine: a typed `choice` question
   over the same operator ids, answered with calibrated probabilities.
 - `src/ex/incident/main.clj` — the shift: wires world + agent + the chosen

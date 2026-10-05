@@ -2,7 +2,10 @@
   "CLI: run the blocks-world demo through the decision cycle.
 
     jolt -M:run                  # goal-directed rules: solves without impasses
-    jolt -M:run --naive          # naive rules: ties escalate to System 1
+    jolt -M:run --naive          # naive rules, no model: substates nest until
+                                 # the valve opens and System 1 picks
+    jolt -M:run --lookahead      # naive rules with a model: System 2
+                                 # deliberates by look-ahead
   "
   (:require [hyd.agent :as agent]
             [hyd.blocks :as blocks]
@@ -19,16 +22,29 @@
    :apply blocks/apply-op
    :goal-met? blocks/goal-met?
    :intuition smart-stub
-   :params {:goal-value 10.0 :noise-stddev 0.0 :history-penalty 2.0}})
+   :params {:noise-s 0.0}})
+
+(defn- task
+  [args]
+  (cond
+    (some #{"--lookahead"} args) (assoc demo :proposer blocks/naive-proposer
+                                        :simulate blocks/apply-op)
+    (some #{"--naive"} args) (assoc demo :proposer blocks/naive-proposer)
+    :else (assoc demo :proposer blocks/goal-directed-proposer)))
+
+(defn- fmt
+  [x]
+  (if (float? x) (format "%.2f" x) (str x)))
 
 (defn -main [& args]
-  (let [naive? (some #{"--naive"} args)
-        out (agent/solve (assoc demo
-                                :proposer (if naive?
-                                            agent/blocks-proposer
-                                            agent/goal-directed-proposer)))]
+  (let [out (agent/solve (task args))]
     (println "solved:" (:solved? out))
     (println "final:" (:final-state out))
     (println "cycles:" (:cycles out) "chunks:" (count (:chunks out)))
     (doseq [t (:trace out)]
-      (println " " (:cycle t) (:via t) (:op t) (:args t)))))
+      (println " " (:cycle t) (:via t)
+               (if-let [op (:op t)] (str (:op op) " " (:args op)) "-")
+               (if (:impasse t)
+                 (str "(" (name (:impasse t)) ", depth " (:depth t)
+                      ", pressure " (fmt (:pressure t)) ")")
+                 "")))))
