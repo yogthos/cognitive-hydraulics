@@ -1,0 +1,10 @@
+# tool caches (machine-local, regenerate on demand)
+.clj-kondo/
+.cpcache/
+.jolt/
+.lsp/
+.writ-cache/
+.clj-kondo/.cache/
+
+# example runtime artifacts
+examples/incident/chunks.edn

@@ -1,0 +1,28 @@
+{;; The incident-triage example: cognitive-hydraulics as an on-call decision
+ ;; maker, with a real LLM (DeepSeek) behind the pressure valve.
+ :paths ["src"]
+
+ :deps {hyd/hyd {:local/root "../.."}
+
+         ;; The engine adapters speak HTTP and JSON. These live in the
+         ;; example, not the library: cognitive-hydraulics itself is
+         ;; IO-free, and the intuition protocol is the only seam.
+         jolt-lang/http-client
+         {:git/url "https://github.com/jolt-lang/http-client"
+          :git/tag "v0.0.17"
+          :git/sha "77d7e310a1aab2c7d5ecc9f6cc10f77b7a7f23ba"}
+
+         ;; java.time host shim. data.json needs DateTimeFormatter (RFC 0008).
+         jolt-lang/time
+         {:git/url "https://github.com/jolt-lang/time"
+          :git/sha "bc85090dae95d103ba04f4ea9687945cf46fb19e"}
+
+         ;; JSON for the chat-completions and systemone wire formats.
+         org.clojure/data.json
+         {:git/url "https://github.com/clojure/data.json"
+          :git/sha "94463ffb54482427fd9b31f264b06bff6dcfd557"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :main-opts ["-m" "ex.test-runner"]}
+  :run  {:main-opts ["-m" "ex.incident.main"]}}}
