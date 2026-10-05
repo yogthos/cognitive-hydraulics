@@ -38,7 +38,8 @@
 
 (defn parse-estimates
   "The JSON reply back to {operator {:p :c}}. Operator ids are matched back
-  to the operators asked about; unknown ids are dropped; garbage is {}."
+  to the operators asked about; unknown ids and estimates that are not
+  numbers are dropped; garbage is {}."
   [reply operators]
   (try
     (let [by-id (into {} (map (juxt op-id identity) operators))
@@ -46,8 +47,8 @@
       (into {}
             (keep (fn [[k v]]
                     (when-let [op (get by-id (str k))]
-                      (when (map? v)
-                        {op {:p (get v "p") :c (get v "c")}})))
+                      (when (and (map? v) (number? (get v "p")) (number? (get v "c")))
+                        {op {:p (double (get v "p")) :c (double (get v "c"))}})))
                   decoded)))
     (catch Throwable _ {})))
 

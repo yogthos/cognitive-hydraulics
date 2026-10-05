@@ -8,11 +8,13 @@
  {:test {:extra-paths ["test"]
          :extra-deps {io.github.jlt-commons/writ
                       {:git/url "https://github.com/jlt-commons/writ"
-                       :git/sha "57d863b290e7abe9f2918f969c2a6c74ee6d5a21"}}
+                       :git/tag "v0.1.3"
+                       :git/sha "b8ded7343841a0b6d6d7d9c04de1291bee7fded7"}}
          :main-opts ["-m" "hyd.test-runner"]}
   :check {:extra-paths ["test"]
           :extra-deps {io.github.jlt-commons/writ
                        {:git/url "https://github.com/jlt-commons/writ"
-                        :git/sha "57d863b290e7abe9f2918f969c2a6c74ee6d5a21"}}
+                        :git/tag "v0.1.3"
+                        :git/sha "b8ded7343841a0b6d6d7d9c04de1291bee7fded7"}}
           :main-opts ["-m" "hyd.spec-check"]}
   :run {:main-opts ["-m" "hyd.main"]}}}

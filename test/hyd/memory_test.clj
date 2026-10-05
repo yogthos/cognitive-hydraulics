@@ -1,44 +1,35 @@
 (ns hyd.memory-test
   (:require [clojure.test :refer [deftest is testing]]
             [hyd.core :as core]
-            [hyd.memory :as memory]))
+            [hyd.memory :as memory]
+            [hyd.persist :as persist]))
 
-(defn- t [op ok]
-  {:op {:op op :args {}} :result (if ok (core/ok {} "fine") (core/fail "boom"))})
-
-(defn- apply-t [wm tr next-state]
-  (memory/record wm tr (:result tr) next-state))
+(def mv {:op :move :args {}})
 
 (deftest working-memory-basics
   (let [wm (-> (memory/wm {:step 0})
-               (apply-t (t :move true) {:step 1})
-               (apply-t (t :move false) {:step 1}))]
-    (testing "records transitions and counts actions"
+               (memory/record mv (core/ok {:step 1} "fine"))
+               (memory/record mv (core/fail "boom")))]
+    (testing "records transitions and counts actions by whole operator"
       (is (= 2 (count (:history wm))))
-      (is (= {(:op (t :move true)) 2} (:counts wm))))
+      (is (= {mv 2} (:counts wm))))
     (testing "state advances to the last ok result"
       (is (= {:step 1} (:state wm))))
-    (testing "failed operators in the recent window"
-      (is (= [:move] (memory/failed-operators wm))))
-    (testing "loop detection: same op failing 3+ times"
-      (is (false? (memory/looping? wm)))
-      (is (true? (memory/looping? (-> wm
-                                      (apply-t (t :move false) {:step 1})
-                                      (apply-t (t :move false) {:step 1}))))))))
+    (testing "operator no-change rejections are per state"
+      (let [wm (memory/reject wm {:step 1} mv)]
+        (is (memory/rejected? wm {:step 1} mv))
+        (is (not (memory/rejected? wm {:step 0} mv)))))))
 
 (deftest chunk-store
-  (testing "a successful resolution becomes a chunk, retrievable by state similarity"
-    (let [store (-> (memory/store)
-                    (memory/remember {:state {:on {:a :table} :clear #{:a :b}}
-                                      :op :move
-                                      :goal "stack a on b"
-                                      :utility 7.5}))]
-      (is (= 1 (count (:chunks store))))
-      (is (= :move (:op (first (memory/recall store {:on {:a :table}})))))))
-
+  (testing "a chunk keeps the whole operator and is recalled for its goal"
+    (let [op {:op :move :args {:b :a :to :b}}
+          store (memory/remember (memory/store) (memory/chunk {:on {:a :table}} op "g" 7.5))]
+      (is (= op (:op (first (memory/recall store {:on {:a :table}} "g" 1.0)))))
+      (is (empty? (memory/recall store {:on {:a :table}} "other" 0.0)))))
+  (testing "similarity reads contents, not just keys"
+    (is (< (memory/similarity {:on {:a :b}} {:on {:a :c}}) 1.0)))
   (testing "chunks persist to EDN and load back"
     (let [path "/tmp/hyd-chunks-test.edn"
-          store (-> (memory/store)
-                    (memory/remember {:state {:on {:a :table}} :op :stack :goal "g" :utility 3.0}))]
-      (memory/save! store path)
-      (is (= 1 (count (:chunks (memory/load-store path))))))))
+          store (memory/remember (memory/store) (memory/chunk {:on {:a :table}} mv "g" 3.0))]
+      (persist/save! store path)
+      (is (= store (persist/load-store path))))))
