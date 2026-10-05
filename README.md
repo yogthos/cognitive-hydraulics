@@ -1,7 +1,11 @@
 # cognitive-hydraulics
 
-A hybrid reasoning engine on [Jolt](https://github.com/jolt-lang/jolt).
+A neurosymbolic reasoning engine on [Jolt](https://github.com/jolt-lang/jolt).
 Deliberate symbolic reasoning (System 2) with a heuristic fallback (System 1), bridged by an LLM intuition source.
+In Kautz's taxonomy it is *Symbolic[Neural]*: the symbolic engine stays in control and consults the LLM as a
+heuristic oracle at defined points, to estimate success and cost when the pressure valve trips, and to propose
+operators when the rules have none. The LLM never touches the symbolic structures; it returns judgments the
+core weighs, and the core runs unchanged with a deterministic stub in its place.
 
 A pure symbolic core built on a Soar-style decision cycle and impasse taxonomy, with ACT-R's utility equation as the fallback.
 On an impasse, the core first deliberates by look-ahead. When a pressure valve signals that deliberation is stalling,
