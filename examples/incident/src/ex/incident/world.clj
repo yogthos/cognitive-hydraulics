@@ -13,10 +13,18 @@
   remedy resolves the page only when it matches the cause."
   (:require [hyd.core :as core]))
 
+(def ^:private signals
+  "What the page says for each root cause: the evidence an on-call reads,
+  never the cause by name."
+  {:bad-config "error rate 9% since the last deploy; requests over the new limit rejected with 400"
+   :memory-leak "heap climbing for 2h, pods OOM-killed, latency p99 4.2s"
+   :capacity "CPU saturated on every replica, request queue depth 900, latency p99 4.2s"})
+
 (defn incident
   "A world with a page on payments. root-cause is the hidden ground truth
-  (:bad-config, :memory-leak, :capacity); deploy-minutes-ago controls how
-  fresh the last deploy is (default 14, well inside the rollback window)."
+  (:bad-config, :memory-leak, :capacity); the page's signal is its
+  observable evidence. deploy-minutes-ago controls how fresh the last
+  deploy is (default 14, well inside the rollback window)."
   ([root-cause] (incident root-cause 14))
   ([root-cause deploy-minutes-ago]
    {:services {"payments" {:health :critical
@@ -32,7 +40,7 @@
                                  :minutes-ago 340
                                  :touched ["src/core.clj"]}}}
     :page {:service "payments"
-           :signal "latency p99 4.2s, error rate 9%"
+           :signal (get signals root-cause "latency p99 4.2s, error rate 9%")
            :minutes-ago 6}}))
 
 ;; --- operators, as data -----------------------------------------------------

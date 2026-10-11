@@ -72,10 +72,13 @@
         lev-url (str "http://127.0.0.1:" (or (System/getenv "LEV_PORT") "8080"))
         live (if (= mood "--lev")
                (lev/->LevLLM (or (System/getenv "LEV_URL") lev-url)
-                             {:model (or (System/getenv "LEV_MODEL") "english")})
+                             (cond-> {:model (or (System/getenv "LEV_MODEL") "english")}
+                               (seq (System/getenv "LEV_ESCALATE"))
+                               (assoc :escalate {"model" (System/getenv "LEV_ESCALATE")})))
                (deepseek/live))
         label (if (= mood "--lev")
-                (str "lev/" (or (System/getenv "LEV_MODEL") "english"))
+                (str "lev/" (or (System/getenv "LEV_MODEL") "english")
+                     (when-let [t (not-empty (System/getenv "LEV_ESCALATE"))] (str " -> " t)))
                 (:model (deepseek/config)))
         out (run! (counting live calls) scenario store)]
     (println (str "scenario: " (name scenario) ", intuition: " label))
