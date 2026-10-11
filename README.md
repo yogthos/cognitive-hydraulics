@@ -88,7 +88,7 @@ goal move, and the resolution is chunked. Give the agent a model
 
 ## Design notes
 
-- **Everything pure — no IO in the core.** The cycle, the valve, and the equation are pure functions over plain maps; the only IO is `hyd.persist` (chunk store as EDN), kept out of the checked namespaces. Inference is a protocol (`hyd.llm/Intuition`); the engine does no HTTP and ships no JSON or clock deps — adapters live in [examples/incident](examples/incident), which supplies two engines (DeepSeek over chat-completions, Lev over calibrated choice) against the same seam.
+- **Everything pure — no IO in the core.** The cycle, the valve, and the equation are pure functions over plain maps; the only IO is `hyd.persist` (chunk store as EDN), kept out of the checked namespaces. Inference is a protocol (`hyd.llm/Intuition`); the engine does no HTTP and ships no JSON or clock deps — adapters live in [examples/incident](examples/incident), which supplies two engines (DeepSeek over chat-completions, Lev over calibrated yes/no and cost questions) against the same seam.
 - **Operators are keyed by their whole map.** `{:op :move :args {:b :a :to :b}}` — moving a onto b and b onto a are different operators with different utilities.
 - **Tabu counts fight loops.** An operator already applied n times is discounted n·penalty, so repetition loses to fresh options.
 - **Noise replays.** ACT-R's utility noise is drawn from a Park–Miller generator threaded through the run; `:seed` in params replays a run exactly.

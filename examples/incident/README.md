@@ -95,20 +95,32 @@ jolt -M:test           # offline suite (stubbed LLM), no network
 
 [jlt-commons/lev](https://github.com/jlt-commons/lev) is a second
 intuition source: `--lev` swaps DeepSeek's chat call for lev's typed
-`choice` question over the operators, answered with calibrated
-probabilities by a local encoder (~125 ms, no API key). The operator ids
-are shared with the DeepSeek adapter, so both key identically, and the
-state the model sees is projected — health, deploys, the page — never the
-hidden `:root-cause`. Start the server first:
+questions, two per remedy in one call: a yes/no "will it resolve the
+page?" (its own P, so the estimates need not sum to 1) and a
+low / medium / high cost score read as an expected cost. The question ids
+are shared with the DeepSeek adapter, so both key identically. The state
+the model sees is projected (health, deploys, the page) and never includes
+the hidden `:root-cause`; each scenario's page carries its own evidence.
+Start the server first:
 
 ```fish
 cd ~/src/jlt-commons/lev && jolt -M:serve &
 cd ~/src/cognitive-hydraulics/examples/incident
 jolt -M:run --lev --reset
+LEV_ESCALATE=qwen3.5-4b jolt -M:run --lev --reset capacity
 ```
 
-`LEV_URL` and `LEV_MODEL` override the endpoint (default
-`http://127.0.0.1:8080`, model `english`).
+`LEV_URL` / `LEV_PORT` and `LEV_MODEL` override the endpoint (default
+`http://127.0.0.1:8080`, model `english`). `LEV_ESCALATE` names a lev
+thinker: the answers the encoder is unsure of are re-asked on it.
+
+How it does on the three scenarios: the english encoder alone answers
+every remedy at P 0.5-0.72, and its first System 1 pick was wrong in all
+three (each incident still clears on a later pick). Escalated to
+Qwen3.5-4B (about 2 s a call on Metal), the right remedy has the highest
+utility in all three; bad-config and capacity clear on the first pick,
+while memory-leak, where restart leads rollback by 0.02, can lose it to
+ACT-R noise and clear on the second.
 
 ## Layout
 
@@ -120,8 +132,8 @@ jolt -M:run --lev --reset
 - `src/ex/incident/deepseek.clj` — DeepSeek config, and the chunk store's
   file (recall itself is the library's: `solve` takes and returns the
   store).
-- `src/ex/incident/lev.clj` — the Lev engine: a typed `choice` question
-  over the same operator ids, answered with calibrated probabilities.
+- `src/ex/incident/lev.clj` — the Lev engine: per operator a noul (P) and
+  a cost score (C), keyed by the same operator ids; optional escalation.
 - `src/ex/incident/main.clj` — the shift: wires world + agent + the chosen
   engine (`--deepseek` default, `--lev`), prints the trace, persists
   `chunks.edn`.

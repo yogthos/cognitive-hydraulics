@@ -52,3 +52,10 @@
       (is (nil? (get-in out [:final-state :page])))
       (is (some #(= :actr (:via %)) (:trace out)))
       (is (= 1 (count (:chunks out)))))))
+
+(deftest the-page-carries-the-evidence
+  ;; the intuition only sees the observable state: if every scenario paged
+  ;; the same signal, no engine could tell a leak from a bad config
+  (let [signals (map #(get-in (world/incident %) [:page :signal]) [:bad-config :memory-leak :capacity])]
+    (is (= 3 (count (set signals))))
+    (is (not-any? #(re-find #"(?i)bad-config|memory-leak|capacity|root" %) signals))))

@@ -1,11 +1,16 @@
 (ns ex.incident.lev
   "Lev (jlt-commons/lev) as the intuition engine.
 
-  Lev answers typed questions over a state with calibrated probabilities:
-  a choice question over the operators' ids is exactly hyd's estimate
-  request, with probabilities an ACT-R equation can consume directly and a
-  512-token budget instead of a chat context. The operator ids reuse
-  ex.incident.openai/op-id so both inference engines key identically.
+  ACT-R's U = P·G − C wants, per operator, the probability that it works
+  and what it costs. Lev answers typed questions over a state with
+  calibrated probabilities, all of a call's questions in one pass, so each
+  operator gets two: a noul (will it resolve the page? its own P, not a
+  share of one choice, so the estimates need not sum to 1) and a score
+  over low / medium / high cost, read as an expected cost. The question
+  ids reuse ex.incident.openai/op-id so both engines key identically.
+  With :escalate {\"model\" thinker \"threshold\" t} the answers lev's
+  encoder is unsure of are re-asked on a thinker (lev's escalate
+  pattern).
 
   The state the model sees is projected: services, page and deploy facts,
   never the hidden :root-cause — the same observability view an on-call
@@ -13,7 +18,6 @@
   (:require ;; the java.time shim must load before http-client (RFC 0014)
             [jolt.time]
             [clojure.data.json :as json]
-            [clojure.string :as str]
             [ex.incident.openai :as openai]
             [hyd.llm :as llm]
             [jolt.http-client :as http]))
@@ -33,41 +37,64 @@
                  [k v])))
         state))
 
+(defn works-id "The id of an operator's will-it-work question." [op] (str (openai/op-id op) "/works"))
+(defn cost-id "The id of an operator's cost question." [op] (str (openai/op-id op) "/cost"))
+
+(def cost-levels ["low" "medium" "high"])
+
+(def default-level-costs
+  "What each cost level costs, against a goal worth 10 (core/defaults)."
+  [0.5 1.0 2.0])
+
+(defn- describe [op]
+  (str (name (get op :op)) " " (pr-str (get op :args))))
+
 (defn questions
-  "One choice question whose criteria are the operators, keyed by their
-  stable op-id. An ordered map keeps option order deterministic."
+  "Per operator, in operator order: a noul asking whether it resolves the
+  page and a score asking what it costs. An ordered map keeps the order
+  deterministic."
   [operators]
-  (let [criteria (apply array-map
-                        (mapcat (fn [op] [(openai/op-id op)
-                                          (str (name (get op :op)) " "
-                                               (pr-str (get op :args)))])
-                                operators))]
-    {"remedy" {"type" "choice"
-               "instructions" "Which remedy fits this paged service? Judge from the error signal, deploy freshness and what the deploy touched."
-               "criteria" criteria}}))
+  (apply array-map
+         (mapcat (fn [op]
+                   [(works-id op) {"type" "noul"
+                                   "instructions" (str "Will running `" (describe op) "` resolve this page? "
+                                                       "Judge from the error signal, deploy freshness and what the deploy touched.")}
+                    (cost-id op) {"type" "score"
+                                  "instructions" (str "How costly or disruptive is running `" (describe op) "` right now?")
+                                  "criteria" cost-levels}])
+                 operators)))
 
 (defn request
   "The /v1/systemone request body."
-  [ctx operators {:keys [model] :or {model "english"} :as _opts}]
-  {:model model
-   :state (project-state (:state ctx))
-   :questions (questions operators)})
+  [ctx operators {:keys [model escalate] :or {model "english"}}]
+  (cond-> {:model model
+           :state (project-state (:state ctx))
+           :questions (questions operators)}
+    escalate (assoc :escalate escalate)))
+
+(defn- expected-cost [answer level-costs]
+  (let [probs (get answer "probabilities")]
+    (when (map? probs)
+      (reduce + 0.0 (map-indexed (fn [i c] (* (double c) (double (or (get probs (str i)) 0.0)))) level-costs)))))
 
 (defn parse-answer
-  "The reply back to {operator {:p :c}}: the choice probabilities become
-  P estimates at uniform cost. Operators the model never scored get p 0;
-  garbage answers {}."
-  [reply operators]
-  (try
-    (let [probs (get-in (json/read-str reply) ["answers" "remedy" "probabilities"])]
-      (if (map? probs)
-        (into {}
-              (map (fn [op]
-                     (let [p (get probs (openai/op-id op))]
-                       {op {:p (if (number? p) (double p) 0.0) :c 1.0}})))
-              operators)
-        {}))
-    (catch Throwable _ {})))
+  "The reply back to {operator {:p :c}}: the noul is P, the cost score's
+  expectation over :level-costs (default-level-costs) is C, unit cost when
+  it is missing. An operator without a noul sits out; garbage answers {}."
+  ([reply operators] (parse-answer reply operators nil))
+  ([reply operators {:keys [level-costs] :or {level-costs default-level-costs}}]
+   (try
+     (let [answers (get (json/read-str reply) "answers")]
+       (if (map? answers)
+         (into {}
+               (keep (fn [op]
+                       (let [p (get-in answers [(works-id op) "noul"])]
+                         (when (number? p)
+                           [op {:p (double p)
+                                :c (or (expected-cost (get answers (cost-id op)) level-costs) 1.0)}]))))
+               operators)
+         {}))
+     (catch Throwable _ {}))))
 
 (defn estimate!
   "One live call against the lev server."
@@ -77,7 +104,7 @@
                          :body (json/write-str (request ctx operators opts))})
         status (:status resp)]
     (if (and status (<= 200 status 299))
-      (parse-answer (str (:body resp)) operators)
+      (parse-answer (str (:body resp)) operators opts)
       {})))
 
 (defrecord LevLLM [url opts]
